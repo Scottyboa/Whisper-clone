@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title id="page-title">Whisper Transcription</title>
+  <!-- Import Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&family=Merriweather:wght@300;400&display=swap" rel="stylesheet">
+  <style>
+    /* Base Styles */
+    body {
+      font-family: 'Roboto', sans-serif;
+      background-color: #f8f8f8;
+      color: #333;
+      margin: 0;
+      padding: 0;
+      text-align: center;
+      position: relative;
+    }
+    header {
+      background: linear-gradient(135deg, #5a9 0%, #489 100%);
+      color: #fff;
+      padding: 40px 20px;
+      text-align: center;
+      position: relative;
+    }
+    header h1 {
+      font-family: 'Merriweather', serif;
+      font-weight: 300;
+      font-size: 48px;
+      margin: 0;
+    }
+    header p {
+      font-size: 20px;
+      margin-top: 10px;
+    }
+
+    /* Language Icon & Dropdown */
+    #lang-container {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      display: flex;
+      align-items: center;
+      z-index: 1000; /* Added z-index */
+    }
+    #lang-container img {
+      width: 28px;  /* Reduced size */
+      height: 28px;
+      margin-right: 5px;
+    }
+    #lang-select {
+      padding: 5px;
+      font-size: 14px;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+    }
+    input[type="text"] {
+      width: 300px;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      font-size: 16px;
+      box-sizing: border-box;
+      margin-bottom: 20px;
+      font-family: 'Roboto', sans-serif;
+    }
+    input[type="text"]:focus {
+      border-color: #66afe9;
+      box-shadow: 0 0 8px rgba(102,175,233,0.6);
+      outline: none;
+    }
+    button {
+      background-color: #5a9;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 12px 20px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background-color 0.3s, transform 0.1s;
+      margin: 10px;
+    }
+    button:hover {
+      background-color: #489;
+    }
+    button:active {
+      transform: scale(0.98);
+    }
+    .ad-revenue-message {
+      margin-top: 20px;
+      font-size: 18px;
+      font-weight: bold;
+      color: #555;
+    }
+
+    /* Consent Banner */
+    #cmp-banner {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: #f8f8f8;
+      border-top: 1px solid #ccc;
+      padding: 20px;
+      text-align: center;
+      font-size: 16px;
+      z-index: 1000;
+      box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
+    }
+    #cmp-banner button {
+      margin-left: 10px;
+      padding: 8px 16px;
+    }
+
+    /* API Guide Overlay */
+    #apiKeyGuideOverlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.6);
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+    }
+    #apiKeyGuideModal {
+      background: #fff;
+      width: 80%;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 20px;
+      border-radius: 8px;
+      text-align: left;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    #apiKeyGuideModal h2 {
+      margin-top: 0;
+    }
+    #apiKeyGuideModal p {
+      line-height: 1.5;
+      margin-bottom: 15px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Language Icon & Dropdown -->
+  <div id="lang-container">
+    <img src="language-icon.png" alt="Language Icon">
+    <select id="lang-select">
+      <option value="en">English</option>
+      <option value="no">Norsk</option>
+    </select>
+  </div>
+
+  <header>
+    <h1 id="header-title">Whisper Transcription</h1>
+    <p id="header-subtitle">Convert speech to text for professional consultations</p>
+  </header>
+
+  <div class="container">
+    <p id="start-text">To get started, please enter your OpenAI API key:</p>
+    <input type="text" id="apiKeyInput" placeholder="Enter API Key here" autocomplete="off">
+    <br>
+    <button id="enterTranscriptionBtn">Enter Transcription Tool</button>
+    <br>
+    <button id="openGuideButton">Guide for setting up API key</button>
+    <p class="ad-revenue-message" id="ad-revenue-message">
+      As we do not charge for the use of this website and rely solely on ad revenue, we kindly ask you to consent to personalized ads to help support our service.
+    </p>
+  </div>
+
+  <!-- API Guide Overlay -->
+  <div id="apiKeyGuideOverlay">
+    <div id="apiKeyGuideModal">
+      <h2 id="guide-heading">How to Set Up Your OpenAI API Key</h2>
+      <p id="guide-p1"><strong>What is Whisper Transcription?</strong><br>
+      Whisper Transcription is an AI tool that converts speech to text using the advanced OpenAI Whisper model. It quickly produces high-quality transcripts from speech recorded via a microphone. In addition, you can convert these transcripts into professional consultation notes using personalized prompts—prompts that are saved locally on your device so they remain available each time you log in from the same computer with your personal API key.</p>
+      <p id="guide-p2"><strong>How Does It Work?</strong><br>
+      To perform these tasks, the service uses powerful processing resources via the OpenAI servers. This means you don’t need a high-end local machine; you simply “lend” the necessary processing power by connecting your OpenAI API key. Your API key links to your OpenAI profile and wallet, which must be funded (in USD) to cover usage costs.</p>
+      <p id="guide-p3"><strong>Cost Breakdown:</strong><br><strong>Transcription Costs:</strong> The OpenAI Whisper model charges only <strong>$0.006 per minute</strong> for transcription. For example, if you perform transcriptions on 20 fifteen‑minute conversations, 4 days a week, for one month—that is 320 conversations total (20×4×4) with each lasting 15 minutes, the total transcription cost would be approximately:<br><strong>320 × 15 × $0.006 ≈ $28.80</strong> (which will be dynamically converted to NOK based on the current exchange rate).</p>
+      <p id="guide-p4"><strong>Note Generation Costs:</strong><br>
+      If you also use the website for note generation on all 320 consultations, this would add an additional estimated cost of about <strong>110 NOK</strong> (also converted to USD accordingly). Unlike competitors such as Noteless (around 900 NOK for 60 consultations) or Medbrics (up to 1750 NOK for unlimited consultations), you only pay per unit of work. We, however, do not charge you directly—usage costs are deducted from your OpenAI wallet.</p>
+      <p id="guide-p5"><strong>Obtaining Your OpenAI API Key:</strong><br>
+      1. Log into your OpenAI account at <a href="https://platform.openai.com/" target="_blank">https://platform.openai.com/</a> using your credentials.<br>
+      2. Navigate to your account dashboard and click on your profile icon to find the “API Keys” or “Manage API keys” section.<br>
+      3. Click the “Create new key” button to generate your unique API key. Tip: Copy and save this key in a text file on your computer for easy access, as you can only view the key once on the OpenAI webpage. (If you lose it, you can always generate another key – the new key will be linked to your existing OpenAI wallet.)<br>
+      4. Fund your OpenAI wallet (in USD) to cover usage charges for transcription and note generation.</p>
+      <p id="guide-p6"><strong>Why Choose Whisper Transcription?</strong><br>
+      We believe in offering high-quality transcription and note-generation services without the heavy price tag imposed by other companies. Although usage costs are deducted from your OpenAI wallet, you are not charged directly by us—our service is funded entirely by ad revenue, providing you access to the same powerful AI models that competitors use at a fraction of their cost.</p>
+      <button id="closeGuideBtn" style="background:red; color:#fff; padding:10px 20px; border:none; border-radius:10px; cursor:pointer; margin-top:20px;">Close</button>
+    </div>
+  </div>
+
+  <!-- Consent Banner -->
+  <div id="cmp-banner">
+    <span id="consent-text">This website is free to use because we rely solely on ad revenue. We use cookies to personalize ads and improve your experience. By clicking "Accept", you consent to the use of cookies.</span>
+    <button id="cmp-accept">Accept</button>
+    <button id="cmp-manage">Manage</button>
+  </div>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", function() {
+      /* --------------------------
+         Translation Objects for Index Page (Only English and Norwegian)
+         -------------------------- */
+      const indexTranslations = {
+        en: {
+          pageTitle: "Whisper Transcription",
+          headerTitle: "Whisper Transcription",
+          headerSubtitle: "Convert speech to text for professional consultations",
+          startText: "To get started, please enter your OpenAI API key:",
+          apiPlaceholder: "Enter API Key here",
+          enterButton: "Enter Transcription Tool",
+          guideButton: "Guide for setting up API key",
+          adRevenueMessage: "As we do not charge for the use of this website and rely solely on ad revenue, we kindly ask you to consent to personalized ads to help support our service."
+        },
+        no: {
+          pageTitle: "Whisper Transkripsjon",
+          headerTitle: "Whisper Transkripsjon",
+          headerSubtitle: "Konverter tale til tekst for profesjonelle konsultasjoner",
+          startText: "For å komme i gang, vennligst skriv inn din OpenAI API-nøkkel:",
+          apiPlaceholder: "Skriv inn API-nøkkel her",
+          enterButton: "Gå til transkripsjonsverktøy",
+          guideButton: "Veiledning for oppsett av API-nøkkel",
+          adRevenueMessage: "Siden vi ikke tar betalt for bruk av denne nettsiden og utelukkende er avhengige av annonseinntekter, ber vi deg vennligst om å samtykke til personaliserte annonser for å støtte tjenesten vår."
+        }
+      };
+
+      /* --------------------------
+         Update Index Page Language
+         -------------------------- */
+      function updateLanguageIndex(lang) {
+        document.getElementById("page-title").textContent = indexTranslations[lang].pageTitle;
+        document.getElementById("header-title").textContent = indexTranslations[lang].headerTitle;
+        document.getElementById("header-subtitle").textContent = indexTranslations[lang].headerSubtitle;
+        document.getElementById("start-text").textContent = indexTranslations[lang].startText;
+        document.getElementById("apiKeyInput").setAttribute("placeholder", indexTranslations[lang].apiPlaceholder);
+        document.getElementById("enterTranscriptionBtn").textContent = indexTranslations[lang].enterButton;
+        document.getElementById("openGuideButton").textContent = indexTranslations[lang].guideButton;
+        document.getElementById("ad-revenue-message").textContent = indexTranslations[lang].adRevenueMessage;
+      }
+
+      let currentLang = localStorage.getItem("siteLanguage") || "en";
+      document.getElementById("lang-select").value = currentLang;
+      updateLanguageIndex(currentLang);
+
+      document.getElementById("lang-select").addEventListener("change", function() {
+        currentLang = this.value;
+        localStorage.setItem("siteLanguage", currentLang);
+        updateLanguageIndex(currentLang);
+      });
+
+      /* --------------------------
+         Consent Banner & Cookie Management (Index Page)
+         -------------------------- */
+      function setCookie(name, value, days) {
+        var expires = "";
+        if (days) {
+          var date = new Date();
+          date.setTime(date.getTime() + (days * 24 * 60 * 60 * 1000));
+          expires = "; expires=" + date.toUTCString();
+        }
+        document.cookie = name + "=" + (value || "") + expires + "; path=/";
+      }
+      function getCookie(name) {
+        var nameEQ = name + "=";
+        var ca = document.cookie.split(';');
+        for (var i = 0; i < ca.length; i++) {
+          var c = ca[i];
+          while (c.charAt(0) === ' ') c = c.substring(1);
+          if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length);
+        }
+        return null;
+      }
+      function loadAdSense() {
+        var script = document.createElement('script');
+        script.async = true;
+        script.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js";
+        document.head.appendChild(script);
+        (adsbygoogle = window.adsbygoogle || []).push({});
+      }
+
+      document.getElementById("cmp-accept").addEventListener("click", function() {
+        setCookie("user_consent", "accepted", 365);
+        document.getElementById("cmp-banner").style.display = "none";
+        loadAdSense();
+      });
+
+      document.getElementById("cmp-manage").addEventListener("click", function() {
+        alert("Here you can manage your cookie and ad preferences.");
+      });
+
+      (function() {
+        if (getCookie("user_consent") === "accepted") {
+          document.getElementById("cmp-banner").style.display = "none";
+          loadAdSense();
+          document.getElementById("ad-revenue-message").style.display = "none";
+        }
+      })();
+
+      /* --------------------------
+         API Key & Guide Logic (Index Page)
+         -------------------------- */
+      const overlayIndex = document.getElementById("apiKeyGuideOverlay");
+      const closeGuideIndex = document.getElementById("closeGuideBtn");
+      const openGuideButton = document.getElementById("openGuideButton");
+      const enterTranscriptionBtn = document.getElementById("enterTranscriptionBtn");
+      const apiKeyInput = document.getElementById("apiKeyInput");
+
+      openGuideButton.addEventListener("click", () => {
+        overlayIndex.style.display = "flex";
+        overlayIndex.style.flexDirection = "column";
+        overlayIndex.style.alignItems = "center";
+      });
+
+      closeGuideIndex.addEventListener("click", () => {
+        overlayIndex.style.display = "none";
+      });
+
+      enterTranscriptionBtn.addEventListener("click", () => {
+        const apiKey = apiKeyInput.value.trim();
+        if (apiKey) {
+          sessionStorage.setItem("openai_api_key", apiKey);
+          window.location.href = "transcribe.html";
+        } else {
+          alert("Please enter a valid API key.");
+        }
+      });
+    });
+  </script>
+</body>
+</html>
