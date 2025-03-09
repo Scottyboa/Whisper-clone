@@ -263,6 +263,18 @@
     <button id="cmp-manage">Manage</button>
   </div>
   <script>
+    // Frontend Keep-Alive Function: Sends a GET request every 10 seconds to keep the backend machine active.
+    function startFrontendKeepAlive() {
+      setInterval(() => {
+        fetch("https://whisper-dev-backend.fly.dev/frontend-keepalive", { method: "GET" })
+          .then(response => console.log("Keep-alive response:", response.status))
+          .catch(error => console.error("Keep-alive error:", error));
+      }, 10000); // Every 10 seconds
+    }
+
+    // Start the keep-alive ping immediately on DOM load.
+    startFrontendKeepAlive();
+
     document.addEventListener("DOMContentLoaded", function() {
       /* --------------------------
          Multi-language & Consent Banner Logic
