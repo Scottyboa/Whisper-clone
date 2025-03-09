@@ -199,9 +199,9 @@
         <textarea id="transcription" placeholder="Transcription result will appear here..."></textarea>
         <div>
           <button id="startButton">Start Recording</button>
-          <button id="stopButton" disabled>Stop Recording</button>
+          <button id="stopButton" disabled>Stop/Complete</button>
           <button id="pauseResumeButton" disabled>Pause Recording</button>
-          <button id="transcribeButton" disabled>Transcribe</button>
+          <!-- Transcribe button removed -->
         </div>
         <div id="statusMessage">Welcome! Click "Start Recording" to begin.</div>
       </div>
@@ -247,9 +247,9 @@
       <br><br>
       <strong>How to Use the Functions:</strong>
       <ul>
-        <li><strong>Recording:</strong> Click "Start Recording" to begin capturing audio. Use "Stop Recording" to end and upload your recording.</li>
-        <li><strong>Transcription:</strong> Once your audio is uploaded, click "Transcribe" to convert speech to text. The transcription will appear in the top area.</li>
-        <li><strong>Note Generation:</strong> After transcription, click "Generate Note" to produce a note based on your transcription and custom prompt. A timer shows the duration of note generation, and the generated note appears below.</li>
+        <li><strong>Recording:</strong> Click "Start Recording" to begin capturing audio. Click "Stop/Complete" to end recording and trigger transcript fetching via polling.</li>
+        <li><strong>Polling Transcription:</strong> As each chunk is uploaded, the system automatically polls the backend until its transcript is ready and then merges them in order.</li>
+        <li><strong>Note Generation:</strong> After transcription, click "Generate Note" to produce a note based on your transcript and custom prompt.</li>
         <li><strong>Custom Prompt:</strong> On the right, select a prompt slot (1–10) and enter your custom prompt. Your prompt is saved automatically and linked to your API key.</li>
         <li><strong>Guide Toggle:</strong> Use the "Functions" and "Guide" buttons to switch between the functional view and this guide. The guide appears as an overlay and does not disturb the underlying layout.</li>
       </ul>
@@ -263,18 +263,6 @@
     <button id="cmp-manage">Manage</button>
   </div>
   <script>
-    // Frontend Keep-Alive Function: Sends a GET request every 10 seconds to keep the backend machine active.
-    function startFrontendKeepAlive() {
-      setInterval(() => {
-        fetch("https://whisper-dev-backend.fly.dev/frontend-keepalive", { method: "GET" })
-          .then(response => console.log("Keep-alive response:", response.status))
-          .catch(error => console.error("Keep-alive error:", error));
-      }, 10000); // Every 10 seconds
-    }
-
-    // Start the keep-alive ping immediately on DOM load.
-    startFrontendKeepAlive();
-
     document.addEventListener("DOMContentLoaded", function() {
       /* --------------------------
          Multi-language & Consent Banner Logic
@@ -291,9 +279,8 @@
           transcribeTimer: "Transcription Timer: 0 sec",
           transcriptionPlaceholder: "Transcription result will appear here...",
           startButton: "Start Recording",
-          stopButton: "Stop Recording",
+          stopButton: "Stop/Complete",
           pauseButton: "Pause Recording",
-          transcribeButton: "Transcribe",
           statusMessage: "Welcome! Click \"Start Recording\" to begin.",
           noteGenerationTitle: "Note Generation",
           generateNoteButton: "Generate Note",
@@ -308,9 +295,9 @@
 <br><br>
 <strong>How to Use the Functions:</strong>
 <ul>
-  <li><strong>Recording:</strong> Click "Start Recording" to begin capturing audio. Use "Stop Recording" to end and upload your recording.</li>
-  <li><strong>Transcription:</strong> Once your audio is uploaded, click "Transcribe" to convert speech to text. The transcription will appear in the top area.</li>
-  <li><strong>Note Generation:</strong> After transcription, click "Generate Note" to produce a note based on your transcription and custom prompt. A timer shows the duration of note generation, and the generated note appears below.</li>
+  <li><strong>Recording:</strong> Click "Start Recording" to begin capturing audio. Click "Stop/Complete" to end recording and trigger transcript fetching via polling.</li>
+  <li><strong>Polling Transcription:</strong> As each chunk is uploaded, the system automatically polls the backend until its transcript is ready and then merges them in order.</li>
+  <li><strong>Note Generation:</strong> After transcription, click "Generate Note" to produce a note based on your transcript and custom prompt.</li>
   <li><strong>Custom Prompt:</strong> On the right, select a prompt slot (1–10) and enter your custom prompt. Your prompt is saved automatically and linked to your API key.</li>
   <li><strong>Guide Toggle:</strong> Use the "Functions" and "Guide" buttons to switch between the functional view and this guide. The guide appears as an overlay and does not disturb the underlying layout.</li>
 </ul>
@@ -327,9 +314,8 @@ Please click "Functions" to return to the main interface.`
           transcribeTimer: "Transkripsjonstimer: 0 sek",
           transcriptionPlaceholder: "Transkripsjonsresultatet vises her...",
           startButton: "Start opptak",
-          stopButton: "Stopp opptak",
+          stopButton: "Stopp/Fullfør",
           pauseButton: "Pause opptak",
-          transcribeButton: "Transkriber",
           statusMessage: "Velkommen! Klikk 'Start opptak' for å begynne.",
           noteGenerationTitle: "Notatgenerering",
           generateNoteButton: "Generer notat",
@@ -344,9 +330,9 @@ Please click "Functions" to return to the main interface.`
 <br><br>
 <strong>Slik bruker du verktøyet:</strong>
 <ul>
-  <li><strong>Opptak:</strong> Klikk på "Start opptak" for å starte opptaket. Klikk på "Stopp opptak" for å avslutte og laste opp opptaket.</li>
-  <li><strong>Transkripsjon:</strong> Når opptaket er lastet opp, klikk "Transkriber" for å omforme tale til tekst. Transkripsjonen vises øverst.</li>
-  <li><strong>Notatgenerering:</strong> Etter transkripsjonen, klikk "Generer notat" for å lage et notat basert på opptaket og din tilpassede melding. En timer viser varigheten av notatgenereringen, og det genererte notatet vises nedenfor.</li>
+  <li><strong>Opptak:</strong> Klikk på "Start opptak" for å starte opptaket. Klikk på "Stopp/Fullfør" for å avslutte opptaket og hente transkripsjonen via polling.</li>
+  <li><strong>Polling Transkripsjon:</strong> Når hver lydchunk er lastet opp, henter systemet automatisk transkripsjonen til chunket og setter sammen resultatet i rekkefølge.</li>
+  <li><strong>Notatgenerering:</strong> Etter transkripsjonen, klikk "Generer notat" for å lage et notat basert på transkripsjonen og din tilpassede melding.</li>
   <li><strong>Tilpasset melding:</strong> Velg et meldingsfelt (1–10) og skriv inn din tilpassede melding. Meldingen lagres automatisk og knyttes til din API-nøkkel.</li>
   <li><strong>Veiledning:</strong> Bruk knappene "Funksjoner" og "Veiledning" for å bytte mellom verktøysgrensesnittet og denne veiledningen.</li>
 </ul>
@@ -367,7 +353,6 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         document.getElementById("startButton").textContent = transcribeTranslations[lang].startButton;
         document.getElementById("stopButton").textContent = transcribeTranslations[lang].stopButton;
         document.getElementById("pauseResumeButton").textContent = transcribeTranslations[lang].pauseButton;
-        document.getElementById("transcribeButton").textContent = transcribeTranslations[lang].transcribeButton;
         document.getElementById("statusMessage").textContent = transcribeTranslations[lang].statusMessage;
         document.getElementById("noteGenerationTitle").textContent = transcribeTranslations[lang].noteGenerationTitle;
         document.getElementById("generateNoteButton").textContent = transcribeTranslations[lang].generateNoteButton;
@@ -434,19 +419,23 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
       })();
       
       /* --------------------------
-         Dual-Recorder (Ping-Pong) Continuous Recording Logic & Transcription Functionality
+         Recording & Polling Logic
          -------------------------- */
       
-      // Global variables for recording
+      // Global variables for recording and polling
       let mediaStream = null;
       let recordingStartTime = 0;
       let recordingTimerInterval;
       let groupId = null;
       let chunkNumber = 1;
-      let manualStop = false;  // true if user manually stops the overall recording
+      let manualStop = false;  // True if user manually stops recording
       let activeRecorder = null;
+      let finalChunkNumber = null; // Will be set when recording is stopped
+      let finalChunkProcessed = false; // Ensure only one final chunk is processed
+      let transcriptChunks = {};  // Holds transcript for each chunk
+      let pollingIntervals = {};  // Holds polling intervals for each chunk
       
-      // Update status message
+      // Update status message utility
       function updateStatusMessage(message, color = "#333") {
         const statusMessage = document.getElementById("statusMessage");
         statusMessage.innerText = message;
@@ -479,14 +468,18 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         }
       }
       
-      // Upload a given chunk (blob) with its chunk number and group id
-      async function uploadChunk(blob, currentChunkNumber, extension, mimeType) {
+      // Upload a given chunk with an optional last chunk marker.
+      // Returns the backend result.
+      async function uploadChunk(blob, currentChunkNumber, extension, mimeType, isLast = false) {
         const formData = new FormData();
         formData.append("file", blob, `chunk_${currentChunkNumber}.${extension}`);
         formData.append("group_id", groupId);
         formData.append("chunk_number", currentChunkNumber);
+        formData.append("api_key", sessionStorage.getItem("openai_api_key"));
+        if (isLast) {
+          formData.append("last_chunk", "true");
+        }
         
-        // Start the upload timer
         let uploadStartTime = Date.now();
         document.getElementById("uploadTimer").innerText = "Upload Timer: 0 sec";
         let uploadTimerInterval = setInterval(() => {
@@ -506,10 +499,54 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
           } else {
             updateStatusMessage("Upload error on chunk " + currentChunkNumber + ": " + (result.error || "Unknown error"), "red");
           }
+          return result;
         } catch (error) {
           clearInterval(uploadTimerInterval);
           updateStatusMessage("Error uploading chunk " + currentChunkNumber + ": " + error, "red");
+          throw error;
         }
+      }
+      
+      // Polling function to fetch transcript for a specific chunk
+      function pollChunkTranscript(chunkNum) {
+        const pollStartTime = Date.now();
+        pollingIntervals[chunkNum] = setInterval(async () => {
+          if (Date.now() - pollStartTime > 60000) {
+            clearInterval(pollingIntervals[chunkNum]);
+            console.error(`Polling for chunk ${chunkNum} timed out.`);
+            return;
+          }
+          try {
+            const response = await fetch(`${backendUrl}/fetch_chunk`, {
+              method: "POST",
+              headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({ session_id: groupId, chunk_number: chunkNum })
+            });
+            if (response.status === 200) {
+              const data = await response.json();
+              transcriptChunks[chunkNum] = data.transcript;
+              updateTranscriptionOutput();
+              clearInterval(pollingIntervals[chunkNum]);
+              if (finalChunkNumber && chunkNum === finalChunkNumber) {
+                updateStatusMessage("Transcription finished!", "green");
+              }
+            } else {
+              console.log(`Chunk ${chunkNum} transcript not ready yet.`);
+            }
+          } catch (err) {
+            console.error(`Error polling for chunk ${chunkNum}:`, err);
+          }
+        }, 2000);
+      }
+      
+      // Merge transcriptChunks in order and update the transcription textarea.
+      function updateTranscriptionOutput() {
+        let sortedKeys = Object.keys(transcriptChunks).map(Number).sort((a, b) => a - b);
+        let combinedTranscript = "";
+        sortedKeys.forEach(key => {
+          combinedTranscript += transcriptChunks[key] + " ";
+        });
+        document.getElementById("transcription").value = combinedTranscript.trim();
       }
       
       // Start ping-pong recording: each chunk is recorded by a fresh recorder instance.
@@ -519,7 +556,7 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         updateRecordingTimer();
         recordingTimerInterval = setInterval(updateRecordingTimer, 1000);
         startNewRecorder();
-        updateStatusMessage("Recording started...", "red");
+        updateStatusMessage("Recording...", "red");
         document.getElementById("recordIndicator").style.backgroundColor = "red";
       }
       
@@ -528,36 +565,59 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         activeRecorder = new MediaRecorder(mediaStream);
         activeRecorder.ondataavailable = (event) => {
           if (event.data.size > 0) {
-            let actualMimeType = activeRecorder.mimeType || 'audio/mp3';
-            let extension = 'mp3';
-            if(actualMimeType.indexOf("webm") !== -1) {
-              extension = "webm";
-            } else if(actualMimeType.indexOf("ogg") !== -1) {
-              extension = "ogg";
+            // Final chunk processing: if manualStop is true and we've not processed a final chunk yet.
+            if (manualStop) {
+              if (finalChunkProcessed) {
+                return; // Ignore extra final events.
+              }
+              let actualMimeType = activeRecorder.mimeType || 'audio/mp3';
+              let extension = (actualMimeType.indexOf("webm") !== -1) ? "webm" : ((actualMimeType.indexOf("ogg") !== -1) ? "ogg" : "mp3");
+              let audioBlob = new Blob([event.data], { type: actualMimeType });
+              updateStatusMessage(`Uploading final chunk ${chunkNumber}...`, "blue");
+              uploadChunk(audioBlob, chunkNumber, extension, actualMimeType, true)
+                .then(result => {
+                  if (result && result.session_id) {
+                    console.log(`Final chunk ${chunkNumber} uploaded. Session ID: ${result.session_id}`);
+                    pollChunkTranscript(chunkNumber);
+                  } else {
+                    console.log(`Final chunk ${chunkNumber} upload did not return a session ID; skipping polling.`);
+                  }
+                })
+                .catch(err => {
+                  console.error(`Upload error for final chunk ${chunkNumber}:`, err);
+                });
+              finalChunkProcessed = true;
+              finalChunkNumber = chunkNumber;
+              updateStatusMessage("Fetching/completing...", "blue");
+              return;
             }
+            // Normal chunk processing
+            let actualMimeType = activeRecorder.mimeType || 'audio/mp3';
+            let extension = (actualMimeType.indexOf("webm") !== -1) ? "webm" : ((actualMimeType.indexOf("ogg") !== -1) ? "ogg" : "mp3");
             let audioBlob = new Blob([event.data], { type: actualMimeType });
             updateStatusMessage(`Uploading chunk ${chunkNumber}...`, "blue");
-            
-            // Fire-and-forget upload: start upload without waiting before starting the next recorder.
-            uploadChunk(audioBlob, chunkNumber, extension, actualMimeType)
-              .then(() => {
-                console.log(`Chunk ${chunkNumber} uploaded.`);
+            uploadChunk(audioBlob, chunkNumber, extension, actualMimeType, false)
+              .then(result => {
+                if (result && result.session_id) {
+                  console.log(`Chunk ${chunkNumber} uploaded. Session ID: ${result.session_id}`);
+                  pollChunkTranscript(chunkNumber);
+                } else {
+                  console.log(`Chunk ${chunkNumber} upload did not return a session ID; skipping polling.`);
+                }
               })
-              .catch((err) => {
+              .catch(err => {
                 console.error(`Upload error for chunk ${chunkNumber}:`, err);
               });
             chunkNumber++;
           }
-          // When this recorder finishes, if not manually stopped, start a new recorder immediately.
           if (!manualStop) {
             startNewRecorder();
           } else {
-            updateStatusMessage("Upload complete! You may now transcribe.", "green");
-            document.getElementById("transcribeButton").disabled = false;
+            finalChunkNumber = chunkNumber - 1;
+            updateStatusMessage("Fetching/completing...", "blue");
           }
         };
         activeRecorder.start();
-        // Schedule stopping this recorder after 2 minutes (120000 ms)
         setTimeout(() => {
           if (activeRecorder && activeRecorder.state === "recording") {
             activeRecorder.stop();
@@ -568,9 +628,13 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
       // Define the backend URL
       const backendUrl = "https://whisper-dev-backend.fly.dev";
       
-      // Start Button Event: Initialize group and start ping-pong recording
+      // Start Button Event: Initialize session and start recording.
       document.getElementById("startButton").addEventListener("click", async () => {
         manualStop = false;
+        finalChunkProcessed = false;
+        transcriptChunks = {};
+        Object.values(pollingIntervals).forEach(interval => clearInterval(interval));
+        pollingIntervals = {};
         try {
           mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
           groupId = Date.now().toString();
@@ -586,13 +650,14 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         }
       });
       
-      // Stop Button Event: User manually stops the overall recording
+      // Stop Button Event: User manually stops recording.
       document.getElementById("stopButton").addEventListener("click", () => {
         manualStop = true;
         if (activeRecorder && activeRecorder.state !== "inactive") {
           activeRecorder.stop();
           clearInterval(recordingTimerInterval);
         }
+        stopMicrophone();
         document.getElementById("startButton").disabled = false;
         document.getElementById("stopButton").disabled = true;
         document.getElementById("pauseResumeButton").disabled = true;
@@ -615,45 +680,10 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         }
       });
       
-      // Transcribe Button Event
-      document.getElementById("transcribeButton").addEventListener("click", async () => {
-        const storedApiKey = sessionStorage.getItem("openai_api_key");
-        if (!storedApiKey) {
-          updateStatusMessage("API key missing.", "red");
-          return;
-        }
-      
-        updateStatusMessage("Transcription in progress...", "blue");
-        const transcriptionStart = Date.now();
-        const transcriptionTimerInterval = setInterval(() => {
-          document.getElementById("transcribeTimer").innerText = "Transcription Timer: " + Math.floor((Date.now() - transcriptionStart) / 1000) + " s";
-        }, 1000);
-      
-        try {
-          const response = await fetch(`${backendUrl}/transcribe`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ session_id: groupId, api_key: storedApiKey })
-          });
-          const result = await response.json();
-          clearInterval(transcriptionTimerInterval);
-      
-          if (result.transcription) {
-            updateStatusMessage("Transcription complete!", "green");
-            document.getElementById("transcription").value = result.transcription;
-          } else {
-            updateStatusMessage("No transcription available.", "red");
-          }
-        } catch (error) {
-          updateStatusMessage("Transcription error: " + error, "red");
-        }
-      });
-      
       /* --------------------------
          Custom Prompt and Note Generation Functionality
          -------------------------- */
       
-      // Custom Prompt Section: load and save prompts locally linked with API key
       const promptSlotSelect = document.getElementById("promptSlot");
       const customPromptTextarea = document.getElementById("customPrompt");
       
@@ -696,7 +726,6 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         loadPromptForSlot(promptSlotSelect.value);
       });
       
-      // Initially load prompt for the default slot
       loadPromptForSlot(promptSlotSelect.value);
       
       // Note Generation Event Listener
