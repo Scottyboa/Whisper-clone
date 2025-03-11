@@ -66,6 +66,7 @@
     #transcription { resize: vertical; }
     #transcription, #generatedNote { min-height: 150px; }
     #customPrompt { min-height: 200px; }
+    /* Button Styles */
     button {
       background-color: #5a9;
       color: #fff;
@@ -79,6 +80,16 @@
     }
     button:hover { background-color: #489; }
     button:active { transform: scale(0.98); }
+    
+    /* Custom style for disabled buttons */
+    button:disabled {
+      background-color: #ccc; /* Custom gray background */
+      color: #666;           /* Muted text color */
+      cursor: not-allowed;   /* Indicates the button is not clickable */
+      opacity: 0.6;          /* Visibly dimmed */
+      transition: none;      /* No animations */
+      transform: none;
+    }
     /* Bottom Half: Two Columns */
     .bottom-half {
       display: flex;
@@ -228,7 +239,7 @@
       <strong>How to Use the Functions:</strong>
       <ul>
         <li><strong>Recording:</strong> Click "Start Recording" to begin capturing audio. Audio is captured via MediaStreamTrackProcessor (using WebCodecs) and accumulated for up to 40 seconds before being packaged as a self-contained WAV file. A 0.5‑second overlap between chunks is maintained.</li>
-        <li><strong>Completion:</strong> After clicking "Stop/Complete", the recording stops. A final capture delay of 2 seconds collects any remaining audio before processing the final chunk. The Completion Timer then ticks until the full transcript is received.</li>
+        <li><strong>Completion:</strong> After clicking "Stop/Complete", the recording stops. A 2‑second final capture period collects any remaining audio before processing the final chunk. The Completion Timer then ticks until the full transcript is received.</li>
         <li><strong>Note Generation:</strong> After transcription, click "Generate Note" to produce a note based on your transcript and custom prompt.</li>
         <li><strong>Custom Prompt:</strong> On the right, select a prompt slot (1–10) and enter your custom prompt. Your prompt is saved automatically and linked to your API key.</li>
         <li><strong>Guide Toggle:</strong> Use the "Functions" and "Guide" buttons to switch between the functional view and this guide.</li>
