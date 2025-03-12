@@ -429,9 +429,6 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
       let lastFrameTime = 0;
       let chunkTimeoutId;
       
-      // Global flag for pause/resume
-      let isPaused = false;
-      
       function updateStatusMessage(message, color = "#333") {
         const statusMessage = document.getElementById("statusMessage");
         statusMessage.innerText = message;
@@ -504,27 +501,6 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         return new Blob([view], { type: 'audio/wav' });
       }
       
-      // Helper: Sleep function for retry delays
-      function sleep(ms) {
-        return new Promise(resolve => setTimeout(resolve, ms));
-      }
-      
-      // Retry wrapper: Tries uploadChunk every 3.5 sec for up to 30 sec
-      async function uploadChunkWithRetry(blob, currentChunkNumber, extension, mimeType, isLast = false, currentGroup) {
-        const startTime = Date.now();
-        let lastError = null;
-        while (Date.now() - startTime < 30000) { // Retry for up to 30 seconds
-          try {
-            const result = await uploadChunk(blob, currentChunkNumber, extension, mimeType, isLast, currentGroup);
-            return result;
-          } catch (err) {
-            lastError = err;
-            await sleep(3500);
-          }
-        }
-        throw new Error("Failed to upload chunk " + currentChunkNumber + " after 30 sec: " + lastError);
-      }
-      
       // Process accumulated audio frames into a WAV blob and upload.
       // Implements a 0.5-second overlap.
       async function processAudioChunk() {
@@ -583,8 +559,7 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         const mimeType = "audio/wav";
         const extension = "wav";
         const currentChunk = chunkNumber;
-        // Use the retry wrapper here:
-        uploadChunkWithRetry(wavBlob, currentChunk, extension, mimeType, false, groupId)
+        uploadChunk(wavBlob, currentChunk, extension, mimeType, false, groupId)
           .then(result => {
             if (result && result.session_id) {
               console.log(`Chunk ${currentChunk} uploaded. Session ID: ${result.session_id}`);
@@ -597,7 +572,7 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         chunkNumber++;
       }
       
-      // Original upload function (used by retry wrapper)
+      // Updated upload function with retry mechanism and maximum retry time of 1 minute.
       async function uploadChunk(blob, currentChunkNumber, extension, mimeType, isLast = false, currentGroup) {
         const formData = new FormData();
         formData.append("file", blob, `chunk_${currentChunkNumber}.${extension}`);
@@ -607,16 +582,33 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         if (isLast) {
           formData.append("last_chunk", "true");
         }
-        try {
-          const response = await fetch(`${backendUrl}/upload`, {
-            method: "POST",
-            body: formData
-          });
-          const result = await response.json();
-          return result;
-        } catch (error) {
-          updateStatusMessage("Error uploading chunk " + currentChunkNumber + ": " + error, "red");
-          throw error;
+        
+        let attempts = 0;
+        const retryDelay = 4000; // 4 seconds
+        const maxRetryTime = 60000; // 1 minute in milliseconds
+        const startTime = Date.now();
+        while (true) {
+          try {
+            const response = await fetch(`${backendUrl}/upload`, {
+              method: "POST",
+              body: formData
+            });
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(`Server responded with status ${response.status}: ${errorText}`);
+            }
+            const result = await response.json();
+            return result; // Successful upload; exit retry loop.
+          } catch (error) {
+            attempts++;
+            if (Date.now() - startTime >= maxRetryTime) {
+              updateStatusMessage("Failed to upload chunk " + currentChunkNumber + " after maximum retry time", "red");
+              throw new Error("Maximum retry time exceeded for chunk " + currentChunkNumber);
+            }
+            updateStatusMessage("Error uploading chunk " + currentChunkNumber + " (Attempt " + attempts + "): " + error, "red");
+            console.error(`Upload error for chunk ${currentChunkNumber} on attempt ${attempts}:`, error);
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
+          }
         }
       }
       
@@ -684,7 +676,6 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
       }
       
       const backendUrl = "https://whisper-clone.fly.dev";
-      let audioFrames = [];
       
       document.getElementById("startButton").addEventListener("click", async () => {
         // Reset scheduling variables
@@ -735,53 +726,6 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         }
       });
       
-      // Revised Pause/Resume Logic:
-      document.getElementById("pauseResumeButton").addEventListener("click", async () => {
-        if (!mediaStream) return;
-        const track = mediaStream.getAudioTracks()[0];
-        if (!isPaused) {
-          // PAUSE: Cancel the audio reader and stop scheduling
-          if (audioReader) {
-            audioReader.cancel().catch(e => console.error("Error cancelling audioReader:", e));
-            audioReader = null;
-          }
-          clearTimeout(chunkTimeoutId);
-          clearInterval(recordingTimerInterval);
-          // Optionally disable the track to mute input
-          track.enabled = false;
-          isPaused = true;
-          document.getElementById("pauseResumeButton").innerText = "Resume Recording";
-          updateStatusMessage("Recording paused", "orange");
-        } else {
-          // RESUME: Reinitialize the processor and restart scheduling
-          track.enabled = true;
-          const processor = new MediaStreamTrackProcessor({ track: track });
-          audioReader = processor.readable.getReader();
-          function readLoop() {
-            audioReader.read().then(({ done, value }) => {
-              if (done) {
-                console.log("Audio track reading complete.");
-                return;
-              }
-              lastFrameTime = Date.now();
-              audioFrames.push(value);
-              readLoop();
-            }).catch(err => {
-              console.error("Error reading audio frames:", err);
-            });
-          }
-          readLoop();
-          chunkStartTime = Date.now();
-          lastFrameTime = Date.now();
-          scheduleChunk();
-          recordingStartTime = Date.now();
-          recordingTimerInterval = setInterval(updateRecordingTimer, 1000);
-          isPaused = false;
-          document.getElementById("pauseResumeButton").innerText = "Pause Recording";
-          updateStatusMessage("Recording...", "green");
-        }
-      });
-      
       document.getElementById("stopButton").addEventListener("click", async () => {
         updateStatusMessage("Finishing transcription...", "blue");
         manualStop = true;
@@ -805,6 +749,23 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         document.getElementById("stopButton").disabled = true;
         document.getElementById("pauseResumeButton").disabled = true;
         console.log("Recording stopped by user.");
+      });
+      
+      document.getElementById("pauseResumeButton").addEventListener("click", () => {
+        if (!mediaStream) return;
+        const track = mediaStream.getAudioTracks()[0];
+        if (track.enabled) {
+          track.enabled = false;
+          clearInterval(recordingTimerInterval);
+          document.getElementById("pauseResumeButton").innerText = "Resume Recording";
+          updateStatusMessage("Recording paused", "orange");
+        } else {
+          track.enabled = true;
+          recordingStartTime = Date.now();
+          recordingTimerInterval = setInterval(updateRecordingTimer, 1000);
+          document.getElementById("pauseResumeButton").innerText = "Pause Recording";
+          updateStatusMessage("Recording...", "green");
+        }
       });
       
       /* --------------------------
