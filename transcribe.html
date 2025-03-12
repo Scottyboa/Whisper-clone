@@ -83,11 +83,11 @@
     
     /* Custom style for disabled buttons */
     button:disabled {
-      background-color: #ccc; /* Custom gray background */
-      color: #666;           /* Muted text color */
-      cursor: not-allowed;   /* Indicates the button is not clickable */
-      opacity: 0.6;          /* Visibly dimmed */
-      transition: none;      /* No animations */
+      background-color: #ccc;
+      color: #666;
+      cursor: not-allowed;
+      opacity: 0.6;
+      transition: none;
       transform: none;
     }
     /* Bottom Half: Two Columns */
@@ -572,7 +572,7 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         chunkNumber++;
       }
       
-      // Upload function (upload timer removed)
+      // Updated upload function with retry mechanism and maximum retry time of 1 minute.
       async function uploadChunk(blob, currentChunkNumber, extension, mimeType, isLast = false, currentGroup) {
         const formData = new FormData();
         formData.append("file", blob, `chunk_${currentChunkNumber}.${extension}`);
@@ -582,16 +582,33 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         if (isLast) {
           formData.append("last_chunk", "true");
         }
-        try {
-          const response = await fetch(`${backendUrl}/upload`, {
-            method: "POST",
-            body: formData
-          });
-          const result = await response.json();
-          return result;
-        } catch (error) {
-          updateStatusMessage("Error uploading chunk " + currentChunkNumber + ": " + error, "red");
-          throw error;
+        
+        let attempts = 0;
+        const retryDelay = 4000; // 4 seconds
+        const maxRetryTime = 60000; // 1 minute in milliseconds
+        const startTime = Date.now();
+        while (true) {
+          try {
+            const response = await fetch(`${backendUrl}/upload`, {
+              method: "POST",
+              body: formData
+            });
+            if (!response.ok) {
+              const errorText = await response.text();
+              throw new Error(`Server responded with status ${response.status}: ${errorText}`);
+            }
+            const result = await response.json();
+            return result; // Successful upload; exit retry loop.
+          } catch (error) {
+            attempts++;
+            if (Date.now() - startTime >= maxRetryTime) {
+              updateStatusMessage("Failed to upload chunk " + currentChunkNumber + " after maximum retry time", "red");
+              throw new Error("Maximum retry time exceeded for chunk " + currentChunkNumber);
+            }
+            updateStatusMessage("Error uploading chunk " + currentChunkNumber + " (Attempt " + attempts + "): " + error, "red");
+            console.error(`Upload error for chunk ${currentChunkNumber} on attempt ${attempts}:`, error);
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
+          }
         }
       }
       
