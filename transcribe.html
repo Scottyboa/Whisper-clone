@@ -160,22 +160,6 @@
       box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
     }
     #cmp-banner button { margin-left: 10px; padding: 8px 16px; }
-    
-    /* Pulse effect for the transcription output */
-    .pulse {
-      animation: pulseAnimation 1s ease-out;
-    }
-    @keyframes pulseAnimation {
-      0% {
-        box-shadow: 0 0 0 0 rgba(0, 128, 0, 0.7);
-      }
-      70% {
-        box-shadow: 0 0 0 20px rgba(0, 128, 0, 0);
-      }
-      100% {
-        box-shadow: 0 0 0 0 rgba(0, 128, 0, 0);
-      }
-    }
   </style>
 </head>
 <body>
@@ -430,6 +414,7 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
       let recordingStartTime = 0;
       let recordingTimerInterval;
       let completionTimerInterval = null;
+      let completionStartTime = 0;
       let groupId = null;
       let chunkNumber = 1;
       let manualStop = false;
@@ -437,8 +422,8 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
       let pollingIntervals = {};
       
       // Dynamic scheduling constants: aim for chunks of 10 seconds
-      const MIN_CHUNK_DURATION = 10000; // 10 seconds
-      const MAX_CHUNK_DURATION = 10000; // 10 seconds
+      const MIN_CHUNK_DURATION = 30000; // 10 seconds
+      const MAX_CHUNK_DURATION = 30000; // 10 seconds
       const watchdogThreshold = 1500;    // 1.5 sec with no frame
       let chunkStartTime = 0;
       let lastFrameTime = 0;
@@ -673,6 +658,23 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         }
       }
       
+      // Dynamic scheduling function for chunk processing using MIN and MAX durations.
+      function scheduleChunk() {
+        const elapsed = Date.now() - chunkStartTime;
+        const timeSinceLast = Date.now() - lastFrameTime;
+        if (elapsed >= MAX_CHUNK_DURATION) {
+          processAudioChunk();
+          chunkStartTime = Date.now();
+          scheduleChunk();
+        } else if (elapsed >= MIN_CHUNK_DURATION && timeSinceLast >= watchdogThreshold) {
+          processAudioChunk();
+          chunkStartTime = Date.now();
+          scheduleChunk();
+        } else {
+          chunkTimeoutId = setTimeout(scheduleChunk, 500);
+        }
+      }
+      
       const backendUrl = "https://whisper-clone.fly.dev";
       
       document.getElementById("startButton").addEventListener("click", async () => {
@@ -737,12 +739,6 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         // Final capture delay of 2 seconds
         await new Promise(resolve => setTimeout(resolve, 2000));
         await processAudioChunk();
-        // Trigger the pulse effect on the transcription output
-        const outputElem = document.getElementById("transcription");
-        outputElem.classList.add("pulse");
-        setTimeout(() => {
-            outputElem.classList.remove("pulse");
-        }, 1000);
         // Start the completion timer until the final transcript is received.
         completionStartTime = Date.now();
         completionTimerInterval = setInterval(() => {
