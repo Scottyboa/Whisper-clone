@@ -504,6 +504,27 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         return new Blob([view], { type: 'audio/wav' });
       }
       
+      // Helper: Sleep function for retry delays
+      function sleep(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+      }
+      
+      // Retry wrapper: Tries uploadChunk every 3.5 sec for up to 30 sec
+      async function uploadChunkWithRetry(blob, currentChunkNumber, extension, mimeType, isLast = false, currentGroup) {
+        const startTime = Date.now();
+        let lastError = null;
+        while (Date.now() - startTime < 30000) { // Retry for up to 30 seconds
+          try {
+            const result = await uploadChunk(blob, currentChunkNumber, extension, mimeType, isLast, currentGroup);
+            return result;
+          } catch (err) {
+            lastError = err;
+            await sleep(3500);
+          }
+        }
+        throw new Error("Failed to upload chunk " + currentChunkNumber + " after 30 sec: " + lastError);
+      }
+      
       // Process accumulated audio frames into a WAV blob and upload.
       // Implements a 0.5-second overlap.
       async function processAudioChunk() {
@@ -562,7 +583,8 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         const mimeType = "audio/wav";
         const extension = "wav";
         const currentChunk = chunkNumber;
-        uploadChunk(wavBlob, currentChunk, extension, mimeType, false, groupId)
+        // Use the retry wrapper here:
+        uploadChunkWithRetry(wavBlob, currentChunk, extension, mimeType, false, groupId)
           .then(result => {
             if (result && result.session_id) {
               console.log(`Chunk ${currentChunk} uploaded. Session ID: ${result.session_id}`);
@@ -575,7 +597,7 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         chunkNumber++;
       }
       
-      // Upload function (upload timer removed)
+      // Original upload function (used by retry wrapper)
       async function uploadChunk(blob, currentChunkNumber, extension, mimeType, isLast = false, currentGroup) {
         const formData = new FormData();
         formData.append("file", blob, `chunk_${currentChunkNumber}.${extension}`);
