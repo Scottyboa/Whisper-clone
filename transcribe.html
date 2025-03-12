@@ -238,7 +238,7 @@
       <br><br>
       <strong>How to Use the Functions:</strong>
       <ul>
-        <li><strong>Recording:</strong> Click "Start Recording" to begin capturing audio. Audio is captured via MediaStreamTrackProcessor (using WebCodecs) and accumulated for 10 seconds before being packaged as a self-contained WAV file. A 0.5‑second overlap between chunks is maintained.</li>
+        <li><strong>Recording:</strong> Click "Start Recording" to begin capturing audio. Audio is captured via MediaStreamTrackProcessor (using WebCodecs) and accumulated for up to 40 seconds before being packaged as a self-contained WAV file. A 0.5‑second overlap between chunks is maintained.</li>
         <li><strong>Completion:</strong> After clicking "Stop/Complete", the recording stops. A 2‑second final capture period collects any remaining audio before processing the final chunk. The Completion Timer then ticks until the full transcript is received.</li>
         <li><strong>Note Generation:</strong> After transcription, click "Generate Note" to produce a note based on your transcript and custom prompt.</li>
         <li><strong>Custom Prompt:</strong> On the right, select a prompt slot (1–10) and enter your custom prompt. Your prompt is saved automatically and linked to your API key.</li>
@@ -285,7 +285,7 @@
 <br><br>
 <strong>How to Use the Functions:</strong>
 <ul>
-  <li><strong>Recording:</strong> Click "Start Recording" to begin capturing audio. Audio is captured via MediaStreamTrackProcessor (using WebCodecs) and accumulated for 10 seconds before being packaged as a self-contained WAV file. A 0.5‑second overlap between chunks is maintained.</li>
+  <li><strong>Recording:</strong> Click "Start Recording" to begin capturing audio. Audio is captured via MediaStreamTrackProcessor (using WebCodecs) and accumulated for up to 40 seconds before being packaged as a self-contained WAV file. A 0.5‑second overlap between chunks is maintained.</li>
   <li><strong>Completion:</strong> After clicking "Stop/Complete", the recording stops. A 2‑second final capture period collects any remaining audio before processing the final chunk. The Completion Timer then ticks until the full transcript is received.</li>
   <li><strong>Note Generation:</strong> After transcription, click "Generate Note" to produce a note based on your transcript and custom prompt.</li>
   <li><strong>Custom Prompt:</strong> On the right, select a prompt slot (1–10) and enter your custom prompt. Your prompt is saved automatically and linked to your API key.</li>
@@ -319,7 +319,7 @@ Please click "Functions" to return to the main interface.`
 <br><br>
 <strong>Slik bruker du verktøyet:</strong>
 <ul>
-  <li><strong>Opptak:</strong> Klikk på "Start opptak" for å starte opptaket. Lydopptak fanges via MediaStreamTrackProcessor (med WebCodecs) og akkumuleres i opptil 10 sekunders biter før de pakkes som gyldige WAV-filer. Det beholdes en 0,5-sekunders overlapping mellom bitene.</li>
+  <li><strong>Opptak:</strong> Klikk på "Start opptak" for å starte opptaket. Lydopptak fanges via MediaStreamTrackProcessor (med WebCodecs) og akkumuleres i opptil 40 sekunders biter før de pakkes som gyldige WAV-filer. Det beholdes en 0,5-sekunders overlapping mellom bitene.</li>
   <li><strong>Fullføring:</strong> Etter at du klikker "Stopp/Fullfør", avsluttes opptaket. En 2-sekunders sluttfase fanger opp resterende lyd, og deretter tickes fullføringstimeren til transkripsjonen er ferdig.</li>
   <li><strong>Notatgenerering:</strong> Etter transkripsjonen, klikk "Generer notat" for å lage et notat basert på transkripsjonen og din tilpassede melding.</li>
   <li><strong>Tilpasset melding:</strong> Velg et meldingsfelt (1–10) og skriv inn din tilpassede melding. Meldingen lagres automatisk og knyttes til din API-nøkkel.</li>
@@ -421,9 +421,9 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
       let transcriptChunks = {};
       let pollingIntervals = {};
       
-      // Dynamic scheduling constants: aim for chunks of 10 seconds
-      const MIN_CHUNK_DURATION = 10000; // 10 seconds
-      const MAX_CHUNK_DURATION = 10000; // 10 seconds
+      // Dynamic scheduling constants: aim for chunks between 30 and 40 seconds
+      const MIN_CHUNK_DURATION = 30000; // 30 seconds
+      const MAX_CHUNK_DURATION = 40000; // 40 seconds
       const watchdogThreshold = 1500;    // 1.5 sec with no frame
       let chunkStartTime = 0;
       let lastFrameTime = 0;
