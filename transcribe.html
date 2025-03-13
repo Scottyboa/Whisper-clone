@@ -424,7 +424,7 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
       // Dynamic scheduling constants: aim for chunks between 27 and 33 seconds
       const MIN_CHUNK_DURATION = 27000; // 27 seconds
       const MAX_CHUNK_DURATION = 33000; // 33 seconds
-      const watchdogThreshold = 1500;    // 1.2 sec with no frame
+      const watchdogThreshold = 1500;    // 1.5 sec with no frame
       let chunkStartTime = 0;
       let lastFrameTime = 0;
       let chunkTimeoutId;
@@ -612,9 +612,18 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         }
       }
       
+      // New pollChunkTranscript with 3 sec interval, 1 minute timeout, and stop on success.
       function pollChunkTranscript(chunkNum, currentGroup) {
+        const pollStart = Date.now();
         pollingIntervals[chunkNum] = setInterval(async () => {
+          // If session has changed, clear the interval.
           if (groupId !== currentGroup) {
+            clearInterval(pollingIntervals[chunkNum]);
+            return;
+          }
+          // Check if 1 minute has elapsed.
+          if (Date.now() - pollStart > 60000) {
+            console.log(`Polling timeout for chunk ${chunkNum}`);
             clearInterval(pollingIntervals[chunkNum]);
             return;
           }
@@ -639,7 +648,7 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
           } catch (err) {
             console.error(`Error polling for chunk ${chunkNum}:`, err);
           }
-        }, 2000);
+        }, 3000);
       }
       
       function updateTranscriptionOutput() {
@@ -678,15 +687,18 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
       const backendUrl = "https://whisper-clone.fly.dev";
       
       document.getElementById("startButton").addEventListener("click", async () => {
+        // Clear previous transcript data and polling intervals for a new session.
+        transcriptChunks = {};
+        Object.values(pollingIntervals).forEach(interval => clearInterval(interval));
+        pollingIntervals = {};
+        document.getElementById("transcription").value = "";
+        
         // Reset scheduling variables
         chunkStartTime = Date.now();
         lastFrameTime = Date.now();
         clearTimeout(chunkTimeoutId);
         
         manualStop = false;
-        transcriptChunks = {};
-        Object.values(pollingIntervals).forEach(interval => clearInterval(interval));
-        pollingIntervals = {};
         updateStatusMessage("Recording...", "green");
         try {
           mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
