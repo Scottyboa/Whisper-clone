@@ -80,7 +80,6 @@
     }
     button:hover { background-color: #489; }
     button:active { transform: scale(0.98); }
-    
     /* Custom style for disabled buttons */
     button:disabled {
       background-color: #ccc;
@@ -503,22 +502,27 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
       
       // Process accumulated audio frames into a WAV blob and upload.
       // Implements a 0.5-second overlap.
-      async function processAudioChunk() {
+      async function processAudioChunk(force = false) {
         if (audioFrames.length === 0) return;
-        let totalOverlap = 0;
-        let overlapIndex = audioFrames.length;
-        for (let i = audioFrames.length - 1; i >= 0; i--) {
-          const duration = audioFrames[i].numberOfFrames / audioFrames[i].sampleRate;
-          totalOverlap += duration;
-          if (totalOverlap >= 0.5) { // 0.5 sec overlap
-            overlapIndex = i;
-            break;
+        let framesToProcess;
+        if (force) {
+          // Process all frames regardless of duration
+          framesToProcess = audioFrames;
+          audioFrames = [];
+        } else {
+          let totalOverlap = 0;
+          let overlapIndex = audioFrames.length;
+          for (let i = audioFrames.length - 1; i >= 0; i--) {
+            const duration = audioFrames[i].numberOfFrames / audioFrames[i].sampleRate;
+            totalOverlap += duration;
+            if (totalOverlap >= 0.5) { // 0.5 sec overlap
+              overlapIndex = i;
+              break;
+            }
           }
-        }
-        let framesToProcess = audioFrames.slice(0, overlapIndex);
-        let framesToKeep = audioFrames.slice(overlapIndex);
-        if (framesToProcess.length === 0) {
-          return;
+          framesToProcess = audioFrames.slice(0, overlapIndex);
+          audioFrames = audioFrames.slice(overlapIndex); // retain overlap frames
+          if (framesToProcess.length === 0) return;
         }
         const sampleRate = framesToProcess[0].sampleRate;
         const numChannels = framesToProcess[0].numberOfChannels;
@@ -555,7 +559,6 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         }
         let pcmInt16 = floatTo16BitPCM(pcmFloat32);
         let wavBlob = encodeWAV(pcmInt16, sampleRate, numChannels);
-        audioFrames = framesToKeep; // Retain overlap frames
         const mimeType = "audio/wav";
         const extension = "wav";
         const currentChunk = chunkNumber;
@@ -750,7 +753,8 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         lastFrameTime = 0;
         // Final capture delay of 2 seconds
         await new Promise(resolve => setTimeout(resolve, 2000));
-        await processAudioChunk();
+        // Force processing of all remaining frames regardless of duration
+        await processAudioChunk(true);
         // Start the completion timer until the final transcript is received.
         completionStartTime = Date.now();
         completionTimerInterval = setInterval(() => {
