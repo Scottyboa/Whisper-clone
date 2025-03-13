@@ -420,13 +420,11 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
       let manualStop = false;
       let transcriptChunks = {};
       let pollingIntervals = {};
-      // New global variable to track the currently displayed group ID
-      let currentDisplayedGroupId = null;
       
       // Dynamic scheduling constants: aim for chunks between 27 and 33 seconds
       const MIN_CHUNK_DURATION = 27000; // 27 seconds
       const MAX_CHUNK_DURATION = 33000; // 33 seconds
-      const watchdogThreshold = 1500;    // 1.5 sec with no frame
+      const watchdogThreshold = 1500;    // 1.2 sec with no frame
       let chunkStartTime = 0;
       let lastFrameTime = 0;
       let chunkTimeoutId;
@@ -503,6 +501,8 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         return new Blob([view], { type: 'audio/wav' });
       }
       
+      // Process accumulated audio frames into a WAV blob and upload.
+      // Implements a 0.5-second overlap.
       async function processAudioChunk() {
         if (audioFrames.length === 0) return;
         let totalOverlap = 0;
@@ -572,6 +572,7 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         chunkNumber++;
       }
       
+      // Updated upload function with retry mechanism and maximum retry time of 1 minute.
       async function uploadChunk(blob, currentChunkNumber, extension, mimeType, isLast = false, currentGroup) {
         const formData = new FormData();
         formData.append("file", blob, `chunk_${currentChunkNumber}.${extension}`);
@@ -597,7 +598,7 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
               throw new Error(`Server responded with status ${response.status}: ${errorText}`);
             }
             const result = await response.json();
-            return result;
+            return result; // Successful upload; exit retry loop.
           } catch (error) {
             attempts++;
             if (Date.now() - startTime >= maxRetryTime) {
@@ -613,12 +614,6 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
       
       function pollChunkTranscript(chunkNum, currentGroup) {
         pollingIntervals[chunkNum] = setInterval(async () => {
-          // If a chunk with a new groupID arrives, clear the transcript area and stored chunks.
-          if (currentDisplayedGroupId !== currentGroup) {
-            transcriptChunks = {};
-            document.getElementById("transcription").value = "";
-            currentDisplayedGroupId = currentGroup;
-          }
           if (groupId !== currentGroup) {
             clearInterval(pollingIntervals[chunkNum]);
             return;
@@ -663,6 +658,7 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         }
       }
       
+      // Dynamic scheduling function for chunk processing using MIN and MAX durations.
       function scheduleChunk() {
         const elapsed = Date.now() - chunkStartTime;
         const timeSinceLast = Date.now() - lastFrameTime;
@@ -733,13 +729,17 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
       document.getElementById("stopButton").addEventListener("click", async () => {
         updateStatusMessage("Finishing transcription...", "blue");
         manualStop = true;
+        // Clear dynamic scheduler and recording timer
         clearTimeout(chunkTimeoutId);
         clearInterval(recordingTimerInterval);
         stopMicrophone();
+        // Reset scheduling variables to avoid interference with next recording
         chunkStartTime = 0;
         lastFrameTime = 0;
+        // Final capture delay of 2 seconds
         await new Promise(resolve => setTimeout(resolve, 2000));
         await processAudioChunk();
+        // Start the completion timer until the final transcript is received.
         completionStartTime = Date.now();
         completionTimerInterval = setInterval(() => {
           document.getElementById("transcribeTimer").innerText = "Completion Timer: " + formatTime(Date.now() - completionStartTime);
