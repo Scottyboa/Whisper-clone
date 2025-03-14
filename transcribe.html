@@ -562,7 +562,7 @@ Klikk "Funksjoner" for å gå tilbake til hovedskjermen.`
         const mimeType = "audio/wav";
         const extension = "wav";
         const currentChunk = chunkNumber;
-        uploadChunk(wavBlob, currentChunk, extension, mimeType, false, groupId)
+        uploadChunk(wavBlob, currentChunk, extension, mimeType, force, groupId)
           .then(result => {
             if (result && result.session_id) {
               console.log(`Chunk ${currentChunk} uploaded. Session ID: ${result.session_id}`);
