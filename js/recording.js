@@ -22,7 +22,7 @@ function logError(message, ...optionalParams) {
 const MIN_CHUNK_DURATION = 30000; // 30 seconds
 const MAX_CHUNK_DURATION = 30000; // 30 seconds
 const watchdogThreshold = 1500;   // 1.5 seconds with no frame
-const backendUrl = "https://whisper-dev-backend.fly.dev";
+const backendUrl = "https://whisper-clone.fly.dev";
 
 // Variables to track recording state
 let mediaStream = null;
