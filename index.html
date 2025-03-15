@@ -34,7 +34,6 @@
       font-size: 20px;
       margin-top: 10px;
     }
-
     /* Language Icon & Dropdown */
     #lang-container {
       position: absolute;
@@ -42,22 +41,26 @@
       right: 10px;
       display: flex;
       align-items: center;
-      z-index: 1000; /* Added z-index */
+      z-index: 1000;
     }
+    /* Increased language icon size */
     #lang-container img {
-      width: 28px;  /* Reduced size */
-      height: 28px;
-      margin-right: 5px;
+      width: 36px;
+      height: 36px;
+      margin-right: 8px;
     }
+    /* Increased font size for language select */
     #lang-select {
       padding: 5px;
-      font-size: 14px;
+      font-size: 18px;
     }
-
     .container {
       max-width: 800px;
       margin: 40px auto;
       padding: 20px;
+    }
+    p {
+      font-size: 16px;
     }
     input[type="text"] {
       width: 300px;
@@ -97,7 +100,6 @@
       font-weight: bold;
       color: #555;
     }
-
     /* Consent Banner */
     #cmp-banner {
       position: fixed;
@@ -116,7 +118,6 @@
       margin-left: 10px;
       padding: 8px 16px;
     }
-
     /* API Guide Overlay */
     #apiKeyGuideOverlay {
       display: none;
@@ -157,6 +158,10 @@
     <select id="lang-select">
       <option value="en">English</option>
       <option value="no">Norsk</option>
+      <option value="sv">Svenska</option>
+      <option value="de">Deutsch</option>
+      <option value="fr">Français</option>
+      <option value="it">Italiano</option>
     </select>
   </div>
 
@@ -209,7 +214,7 @@
   <script>
     document.addEventListener("DOMContentLoaded", function() {
       /* --------------------------
-         Translation Objects for Index Page (Only English and Norwegian)
+         Translation Objects for Index Page (English, Norwegian, Swedish, German, French, Italian)
          -------------------------- */
       const indexTranslations = {
         en: {
@@ -231,6 +236,46 @@
           enterButton: "Gå til transkripsjonsverktøy",
           guideButton: "Veiledning for oppsett av API-nøkkel",
           adRevenueMessage: "Siden vi ikke tar betalt for bruk av denne nettsiden og utelukkende er avhengige av annonseinntekter, ber vi deg vennligst om å samtykke til personaliserte annonser for å støtte tjenesten vår."
+        },
+        sv: {
+          pageTitle: "Whisper Transkription",
+          headerTitle: "Whisper Transkription",
+          headerSubtitle: "Omvandla tal till text för professionella konsultationer",
+          startText: "För att komma igång, vänligen ange din OpenAI API-nyckel:",
+          apiPlaceholder: "Ange API-nyckel här",
+          enterButton: "Gå till transkriptionverktyget",
+          guideButton: "Guide för att ställa in API-nyckel",
+          adRevenueMessage: "Eftersom vi inte tar betalt för användningen av denna webbplats och enbart är beroende av annonsintäkter, ber vi dig vänligen att ge ditt samtycke till personliga annonser för att stödja vår tjänst."
+        },
+        de: {
+          pageTitle: "Whisper Transkription",
+          headerTitle: "Whisper Transkription",
+          headerSubtitle: "Sprache in Text umwandeln für professionelle Beratungen",
+          startText: "Um zu beginnen, geben Sie bitte Ihren OpenAI API-Schlüssel ein:",
+          apiPlaceholder: "API-Schlüssel hier eingeben",
+          enterButton: "Transkriptionswerkzeug öffnen",
+          guideButton: "Anleitung zum Einrichten des API-Schlüssels",
+          adRevenueMessage: "Da wir diese Website kostenlos anbieten und ausschließlich auf Werbeeinnahmen angewiesen sind, bitten wir Sie, personalisierte Werbung zuzulassen, um unseren Service zu unterstützen."
+        },
+        fr: {
+          pageTitle: "Transcription Whisper",
+          headerTitle: "Transcription Whisper",
+          headerSubtitle: "Convertir la parole en texte pour des consultations professionnelles",
+          startText: "Pour commencer, veuillez entrer votre clé API OpenAI :",
+          apiPlaceholder: "Entrez la clé API ici",
+          enterButton: "Accéder à l'outil de transcription",
+          guideButton: "Guide pour configurer la clé API",
+          adRevenueMessage: "Comme nous ne facturons pas l'utilisation de ce site et dépendons uniquement des revenus publicitaires, nous vous demandons de bien vouloir accepter les publicités personnalisées pour soutenir notre service."
+        },
+        it: {
+          pageTitle: "Trascrizione Whisper",
+          headerTitle: "Trascrizione Whisper",
+          headerSubtitle: "Convertire il parlato in testo per consulenze professionali",
+          startText: "Per iniziare, inserisci la tua chiave API OpenAI:",
+          apiPlaceholder: "Inserisci qui la chiave API",
+          enterButton: "Accedi allo strumento di trascrizione",
+          guideButton: "Guida per configurare la chiave API",
+          adRevenueMessage: "Poiché non addebitiamo l'uso di questo sito e ci affidiamo esclusivamente alle entrate pubblicitarie, ti chiediamo cortesemente di acconsentire agli annunci personalizzati per supportare il nostro servizio."
         }
       };
 
@@ -249,14 +294,18 @@
       }
 
       let currentLang = localStorage.getItem("siteLanguage") || "en";
-      document.getElementById("lang-select").value = currentLang;
-      updateLanguageIndex(currentLang);
-
-      document.getElementById("lang-select").addEventListener("change", function() {
-        currentLang = this.value;
-        localStorage.setItem("siteLanguage", currentLang);
+      const langSelect = document.getElementById("lang-select");
+      if (langSelect) {
+        langSelect.value = currentLang;
         updateLanguageIndex(currentLang);
-      });
+        langSelect.addEventListener("change", function() {
+          currentLang = this.value;
+          localStorage.setItem("siteLanguage", currentLang);
+          updateLanguageIndex(currentLang);
+        });
+      } else {
+        console.error("Element with id 'lang-select' not found.");
+      }
 
       /* --------------------------
          Consent Banner & Cookie Management (Index Page)
@@ -284,8 +333,11 @@
         var script = document.createElement('script');
         script.async = true;
         script.src = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js";
+        script.onload = function() {
+          window.adsbygoogle = window.adsbygoogle || [];
+          window.adsbygoogle.push({});
+        };
         document.head.appendChild(script);
-        (adsbygoogle = window.adsbygoogle || []).push({});
       }
 
       document.getElementById("cmp-accept").addEventListener("click", function() {
@@ -315,25 +367,31 @@
       const enterTranscriptionBtn = document.getElementById("enterTranscriptionBtn");
       const apiKeyInput = document.getElementById("apiKeyInput");
 
-      openGuideButton.addEventListener("click", () => {
-        overlayIndex.style.display = "flex";
-        overlayIndex.style.flexDirection = "column";
-        overlayIndex.style.alignItems = "center";
-      });
-
-      closeGuideIndex.addEventListener("click", () => {
-        overlayIndex.style.display = "none";
-      });
-
-      enterTranscriptionBtn.addEventListener("click", () => {
-        const apiKey = apiKeyInput.value.trim();
-        if (apiKey) {
-          sessionStorage.setItem("openai_api_key", apiKey);
-          window.location.href = "transcribe.html";
-        } else {
-          alert("Please enter a valid API key.");
-        }
-      });
+      if (openGuideButton && overlayIndex) {
+        openGuideButton.addEventListener("click", () => {
+          overlayIndex.style.display = "flex";
+          overlayIndex.style.flexDirection = "column";
+          overlayIndex.style.alignItems = "center";
+        });
+      }
+      if (closeGuideIndex && overlayIndex) {
+        closeGuideIndex.addEventListener("click", () => {
+          overlayIndex.style.display = "none";
+        });
+      }
+      if (enterTranscriptionBtn && apiKeyInput) {
+        enterTranscriptionBtn.addEventListener("click", () => {
+          const apiKey = apiKeyInput.value.trim();
+          if (apiKey) {
+            sessionStorage.setItem("openai_api_key", apiKey);
+            window.location.href = "transcribe.html";
+          } else {
+            alert("Please enter a valid API key.");
+          }
+        });
+      } else {
+        console.error("Either 'enterTranscriptionBtn' or 'apiKeyInput' element is not found.");
+      }
     });
   </script>
 </body>
