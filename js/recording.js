@@ -258,20 +258,24 @@ async function transcribeChunkViaSpeechmatics(wavBlob, chunkNum) {
   const job        = createJson.job || createJson;
   let status       = job.status;
 
-  // 2) Poll until done
-  while (status === "queued" || status === "processing") {
-    await new Promise(r => setTimeout(r, 2000));
-    const statusResp = await fetch(
-      `https://asr.api.speechmatics.com/v2/jobs/${job.id}/`,
-      { headers: { "Authorization": "Bearer " + smKey } }
-    );
-    const statusJson = await statusResp.json();
-    // normalize the polling response
-    status = statusJson.job?.status || statusJson.status;
+ // 2) Poll until done
+ while (status !== "done") {
+   await new Promise(r => setTimeout(r, 2000));
+   const statusResp = await fetch(
+     `https://asr.api.speechmatics.com/v2/jobs/${job.id}/`,
+     { headers: { "Authorization": "Bearer " + smKey } }
+   );
+   const statusJson = await statusResp.json();
+   // normalize the response whether it's { job: {...} } or { jobs: [ {...} ] }
+  const detail = statusJson.job
+                || (Array.isArray(statusJson.jobs) && statusJson.jobs[0])
+                || statusJson;
+   status = detail.status;
  }
-  if (status !== "done") {
-    throw new Error(`Speechmatics job ${job.id} failed with status ${status}`);
-  }
+ // if you want to detect rejected/deleted/etc, check here; by default we only accept "done"
+ if (status !== "done") {
+   throw new Error(`Speechmatics job ${job.id} failed with status ${status}`);
+ }
 
   // 3) Download transcript as plain text
   const txtResp = await fetch(
