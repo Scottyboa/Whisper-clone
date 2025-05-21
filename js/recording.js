@@ -233,32 +233,35 @@ gainNode.gain.linearRampToValueAtTime(0, duration);
 // --- New: Transcribe Chunk Directly ---
 // Sends the WAV blob directly to OpenAI's Whisper API and returns the transcript.
 async function transcribeChunkDirectly(wavBlob, chunkNum) {
-  const apiKey = getAPIKey();
-  if (!apiKey) throw new Error("API key not available for transcription");
-  
-  const formData = new FormData();
-  formData.append("file", wavBlob, `chunk_${chunkNum}.wav`);
-  formData.append("model", "whisper-1");
-  
+  const dgKey = sessionStorage.getItem("deepgram_api_key");
+  if (!dgKey) throw new Error("Deepgram API key not found");
+
   try {
-    const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + apiKey
-      },
-      body: formData
-    });
+    const response = await fetch(
+      "https://api.deepgram.com/v1/listen?model=nova-3",
+      {
+        method: "POST",
+        headers: {
+          "Authorization": "Token " + dgKey,
+          "Content-Type": "audio/wav"
+        },
+        body: wavBlob
+      }
+    );
+
     if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`OpenAI API error: ${errorText}`);
+      const err = await response.text();
+      throw new Error(`Deepgram API error: ${err}`);
     }
-    const result = await response.json();
-    return result.text || "";
-  } catch (error) {
-    logError(`Error transcribing chunk ${chunkNum}:`, error);
+
+    const data = await response.json();
+    return data.results.channels[0].alternatives[0].transcript || "";
+  } catch (e) {
+    logError(`Error on chunk ${chunkNum}:`, e);
     return `[Error transcribing chunk ${chunkNum}]`;
   }
 }
+
 
 // --- Transcription Queue Processing ---
 // Adds a processed chunk to the queue and processes chunks sequentially.
@@ -473,9 +476,8 @@ function initRecording() {
 
   startButton.addEventListener("click", async () => {
     // Retrieve the API key before starting.
-    const apiKey = getAPIKey();
-    if (!apiKey || !apiKey.startsWith("sk-")) {
-      alert("Please enter a valid OpenAI API key before starting the recording.");
+     const dgKey = sessionStorage.getItem("deepgram_api_key");
+  if (!dgKey) throw new Error("Deepgram API key not found");
       return;
     }
     resetRecordingState();
