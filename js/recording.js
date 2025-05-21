@@ -233,8 +233,8 @@ gainNode.gain.linearRampToValueAtTime(0, duration);
 // --- New: Transcribe Chunk Directly ---
 // Sends the WAV blob directly to OpenAI's Whisper API and returns the transcript.
 async function transcribeChunkDirectly(wavBlob, chunkNum) {
-  const dgKey = sessionStorage.getItem("deepgram_api_key");
-  if (!dgKey) throw new Error("Deepgram API key not found");
+    const dgKey = getAPIKey();   // re-use the same "user_api_key" from index.html
+  if (!dgKey) throw new Error("API key not available for transcription");
 
   try {
     const response = await fetch(
