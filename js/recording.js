@@ -475,12 +475,14 @@ function initRecording() {
   if (!startButton || !stopButton || !pauseResumeButton) return;
 
   startButton.addEventListener("click", async () => {
-    // Retrieve the API key before starting.
-     const dgKey = sessionStorage.getItem("deepgram_api_key");
-  if (!dgKey) throw new Error("Deepgram API key not found");
-      return;
-    }
-    resetRecordingState();
+  // Retrieve the API key before starting.
+  const dgKey = getAPIKey();
+  if (!dgKey) {
+    alert("Please enter a valid API key before starting the recording.");
+    return;
+  }
+  resetRecordingState();
+   
     const transcriptionElem = document.getElementById("transcription");
     if (transcriptionElem) transcriptionElem.value = "";
     
