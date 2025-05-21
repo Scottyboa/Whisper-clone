@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1"/>
+        <title>DPIA – AI-Based Clinical Note Assistant</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 2em;
+                line-height: 1.5;
+                color: #333;
+                font-size: 12pt;
+            }
+
+            h1, h2, h3 {
+                color: #2E5E4E;
+            }
+
+            /* Editable fields */
+            .editable {
+                border: 1px solid #888;
+                padding: 4px;
+                background-color: #f8f8f8;
+                min-height: 1.5em;
+            }
+
+            input.editable {
+                width: 50%;
+            }
+
+            textarea.editable {
+                width: 100%;
+                min-height: 100px;
+            }
+
+            /* PDF mode */
+            .pdf-document {
+                display: none;
+                max-width: 210mm;
+                /* A4 width */
+                margin: 0 auto;
+                font-size: 12pt;
+            }
+
+            .pdf-document p, .pdf-document li {
+                margin-bottom: 0.5em;
+            }
+
+            /* Controls */
+            .controls {
+                margin: 20px 0;
+                display: flex;
+                gap: 10px;
+            }
+
+            .controls button {
+                padding: 10px 15px;
+                background: #2E5E4E;
+                color: white;
+                border: none;
+                cursor: pointer;
+            }
+
+            .controls button:hover {
+                opacity: 0.9;
+            }
+
+            /* Hide in print */
+            @media print {
+                .controls, button, .edit-mode {
+                    display: none !important;
+                }
+
+                .pdf-document {
+                    display: block !important;
+                }
+
+                body {
+                    margin: 0;
+                    padding: 0;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <!-- EDITABLE VERSION -->
+        <div class="edit-mode">
+            <h1>Data Protection Impact Assessment (DPIA)</h1>
+            <h2>AI-Based Clinical Note Assistant for Patient Consultations</h2>
+            <p>
+                <strong>Data Controller:</strong>
+                <input type="text" id="edit-data-controller" class="editable" value="Dr. Legesen">
+            </p>
+            <p>
+                <strong>Purpose of Data Processing:</strong>
+                <input type="text" id="edit-purpose" class="editable" value="Streamline and improve documentation of patient consultations through automatic transcription and draft note generation">
+            </p>
+            <p>
+                <strong>Date:</strong>
+                <input type="text" id="edit-date" class="editable" style="width:120px;" value="10.4.25">
+                , 
+                <strong>Person Responsible for the Assessment:</strong>
+                <input type="text" id="edit-responsible" class="editable" value="Dr. Legesen">
+            </p>
+            <hr/>
+            <h2>1. Description of Processing</h2>
+            <p>Description of how personal data is processed in the solution:</p>
+            <ul>
+                <li>The physician records audio of the patient consultation (the conversation between the physician and patient).</li>
+                <li>The audio recording is securely (encrypted) transmitted over the internet to the OpenAI Whisper API, which automatically transcribes the audio to text.</li>
+                <li>The transcribed text (potentially containing the entire dialogue with the patient's health information) is then sent to the OpenAI ChatGPT API, which generates a draft clinical note/summary.</li>
+                <li>The physician receives the generated draft, reviews it, and edits it as needed. The finalized approved clinical note is stored in the patient's record in the physician's electronic health record (EHR) system as usual.</li>
+                <li>No personal data is stored by the app developer. All data exchange occurs directly between the physician's device and OpenAI's cloud services using the physician's own API keys.</li>
+                <li>OpenAI (data processor) does not store the data permanently; submitted audio and text are processed in-memory and deleted continuously from active systems. Only temporary log data (up to 30 days) is maintained to detect misuse and errors, after which it is also automatically deleted.</li>
+            </ul>
+            <p>
+                <strong>Types and Scope of Information:</strong>
+                <textarea id="edit-info-types" class="editable">The recording and transcription may include the patient's identity (name, date of birth) if mentioned during the consultation, as well as details about health conditions, symptoms, diagnoses, treatments, etc. This constitutes health information (special categories). The entire consultation (typically 10–20 minutes of dialogue) is processed, which can involve a substantial amount of personal data. No additional information beyond what naturally arises in the conversation is collected.</textarea>
+            </p>
+            <p>
+                <strong>System/Technology:</strong>
+                <textarea id="edit-technology" class="editable">The app is a web application hosted on the domain fastlegen.com, managed by Asbjørn Grini. The web application is hosted on one.com's servers, with account access secured by two-factor authentication (2FA). The web application itself runs as a client in the physician's browser—one.com does not process any patient data. The app uses OpenAI's cloud-based AI services for data processing. Data is transmitted directly from the physician's device to OpenAI over HTTPS. OpenAI Whisper and GPT are machine learning models operated on OpenAI's servers (currently located in the USA). The physician's device (PC/tablet/mobile) acts as the client. No data is stored locally beyond temporary buffer memory during upload, and the final clinical note is only stored in the local EHR system as usual.</textarea>
+            </p>
+            <h2>2. Legal Basis for Processing</h2>
+            <p>
+                <strong>Legal Basis for Processing:</strong> The processing is necessary to fulfill the physician's statutory obligation to document healthcare, cf. the Health Personnel Act §39. The legal basis is GDPR Article 6(1)(c) (legal obligation) for record-keeping. For the sensitive health information, GDPR Article 9(2)(h) applies – processing is necessary for the provision of healthcare and carried out by healthcare personnel bound by professional secrecy. This provides a valid exemption for processing of special categories of personal data.
+            </p>
+            <p>
+                <em>Note: Patients are informed about this processing in the clinic's privacy policy. Explicit consent is not obtained, as the processing is considered covered by the aforementioned basis as part of healthcare provision. However, patients have the right to information and may request manual record-keeping if they so desire.</em>
+            </p>
+            <h2>3. Necessity and Proportionality</h2>
+            <p>
+                <strong>Assessment of Necessity Relative to Purpose:</strong>
+            </p>
+            <textarea id="edit-necessity" class="editable">The physician is obligated to maintain accurate clinical notes for each consultation. Traditionally, this is done manually during or after the appointment. This AI-based solution has been introduced to streamline the process (reducing time spent writing) and potentially improve the quality of the note (more comprehensive description of the consultation). Alternatives considered included manual note-taking (time-consuming) or dictation to a human secretary (personnel cost, potential sharing of confidential information). By comparison, the AI solution is considered a proportional measure—it achieves the same purpose more efficiently. No more information is processed than what naturally arises in the consultation; the entire conversation must be analyzed to create a good summary, so the selection of data is necessary. No secondary use of the data beyond note generation occurs. The use of OpenAI's service is necessary because equivalent quality could not currently be achieved with local tools.</textarea>
+            <p>
+                <strong>Assessment of Proportionality and Privacy Principles:</strong>
+            </p>
+            <ul>
+                <li><em><u>Data Minimization:</u></em> The solution minimizes personal data by processing only the audio from the consultation—no additional patient data is collected beyond what is spoken. The physician avoids including unnecessary identifiers in the conversation (e.g., national identification numbers are typically not mentioned verbally).</li>
+                <li><em><u>Storage Limitation:</u></em> Data is not stored beyond what is necessary to fulfill the purpose. OpenAI deletes data promptly after processing (no persistent storage beyond temporary security logs). The physician only stores the final clinical note in the patient's record (in accordance with legal requirements for record retention).</li>
+                <li><em><u>Integrity and Confidentiality:</u></em> Technical and organizational measures have been implemented to protect the data (see Section 5 on measures). All processing is subject to professional secrecy. The clinical note is reviewed by the physician for accuracy before use.</li>
+                <li><em><u>Purpose Limitation:</u></em> Information from the consultation is used solely for one purpose: generating a clinical note for the current patient's treatment. It is not used for any other purpose by the physician or OpenAI.</li>
+            </ul>
+            <h2>4. Risk Assessment for Data Subjects</h2>
+            <p>This section identifies potential privacy risks to patients (data subjects) associated with this data processing:</p>
+            <ul>
+                <li><strong>Unauthorized Access (Confidentiality):</strong> Risk that unauthorized parties may access patient information during transmission or processing. This could occur through hacking attempts on OpenAI or if data is unlawfully disclosed to a third party (e.g., foreign government authorities since data is transferred to the USA). The consequence would be a breach of professional secrecy and potential harm to the patient if sensitive information is exposed.</li>
+                <li><strong>Inaccuracies or Modification of Content (Integrity):</strong> Risk that the AI service mis-transcribes or mis-summarizes, resulting in a misleading or incorrect clinical note. This could affect patient rights (incorrect treatment based on erroneous information) and patient trust. (Note: this is also a patient safety risk and a privacy concern if incorrect personal data is recorded.)</li>
+                <li><strong>Data Unavailability or Loss:</strong> Risk that the recording or generated note is lost during processing due to technical failures, resulting in missing important consultation information. The patient's medical history may become incomplete. (This risk is mitigated by the physician's ability to write the note manually if an error occurs.)</li>
+                <li><strong>Use of Data Beyond Intended Purpose:</strong> Risk that OpenAI could use patient data for purposes other than providing the service, such as model development or sharing with subcontractors. According to the agreement, this should not occur, but there is a theoretical risk if a contractual breach or policy change occurs. Even temporary storage for 30 days poses a possibility for internal access to the data by the provider.</li>
+                <li><strong>Transfer to Third Countries:</strong> Since data is sent to the USA, there is a risk that U.S. intelligence agencies may be compelled to provide access to the data (e.g., FISA 702/Cloud Act). Patient information subject to Norwegian confidentiality rules could be disclosed without the patient or physician's knowledge. Although the probability is considered low for individual consultations, the impact would be severe.</li>
+                <li><strong>Web Application Compromise:</strong> Although the web application (on fastlegen.com) does not process patient data directly, there is a risk that the application could be compromised and modified to send data to unauthorized third parties. This risk is mitigated by secure account management with 2FA and regular security reviews of the code.</li>
+                <li><strong>Patient Rights:</strong> The patient's rights to access and correction/deletion are somewhat complicated: the audio recording and AI processing are transient, so the patient cannot access the "AI processing" at OpenAI (which is deleted within a few weeks). However, the patient can access the final clinical note held by the physician. The risk is that the patient may not fully understand or control this intermediate processing, which could undermine trust.</li>
+            </ul>
+            <p>
+                <strong>Assessment of Severity and Likelihood of Risks:</strong>
+                <textarea id="edit-risk-assessment" class="editable">Unauthorized access is assessed as severe (sensitive content) but unlikely given encryption and short-term storage (low likelihood, high impact). Errors in the note are considered moderately likely (the AI may misinterpret some information) with moderate impact (the physician reviews and corrects most errors). Transfer to the USA carries a low likelihood of governmental access, but the impact would be very high; overall, this poses a risk that must be taken seriously. Compromise of the web application is deemed highly unlikely given the security measures, but the impact would be severe if it occurred. Use beyond the intended purpose is considered unlikely due to contractual restrictions and the provider's interest in maintaining trust; the impact would be serious (moderate risk). Overall, no risks are assessed as "very high" given the existing measures, but some are medium and require clear controls (see measures below).</textarea>
+            </p>
+            <h2>5. Measures to Mitigate Risks</h2>
+            <p>The following technical and organizational measures have been implemented or planned to mitigate the identified risks:</p>
+            <ul>
+                <li>
+                    <strong>Data Processor Agreement with OpenAI:</strong>
+                    A written agreement has been established requiring OpenAI to process the data confidentially and only on the physician's instructions. The agreement specifies that the data is not used for any other purpose (e.g., AI model training) and that it is deleted after processing. Standard Contractual Clauses (SCC) are included to cover transfers out of the EEA, and OpenAI has confirmed compliance with GDPR requirements.
+                </li>
+                <li>
+                    <strong>Encryption and Secure Transmission:</strong>
+                    All communications between the physician's device and OpenAI's API are encrypted (HTTPS/TLS). This prevents eavesdropping during transport. API keys are used for authentication and kept confidential; they are stored securely on the physician's device and rotated regularly if compromise is suspected.
+                </li>
+                <li>
+                    <strong>Security Measures for the Web Application:</strong>
+                    The domain fastlegen.com and hosting on one.com are secured with two-factor authentication (2FA) for administrative access. The application's source code is regularly reviewed for vulnerabilities, and security updates are applied promptly. The application is designed so that all data processing occurs directly between the physician's device and OpenAI, without intermediate storage on the web server.
+                </li>
+                <li>
+                    <strong>Limited Storage and Deletion:</strong>
+                    OpenAI retains data for a maximum of 30 days in its systems for operational security and misuse detection. After this period, logs are automatically deleted. The audio recording and transcription are not permanently stored in the cloud. The physician also does not retain the audio recording after the note is generated and quality-checked, unless needed for documentation of an incident. This measure ensures that patient data is not retained longer than absolutely necessary.
+                </li>
+                <li>
+                    <strong>Additional Measures for Third Country Transfers:</strong>
+                    A Transfer Impact Assessment (TIA) has been conducted to evaluate U.S. legislation against privacy risks. As a mitigating measure, directly identifying information is not included in the transmitted text (for example, the physician avoids dictating full names or social security numbers). This reduces potential harm if data is exposed. Furthermore, the provider is subject to EU Model Clauses for legal protection. If U.S. authorities request data disclosure, OpenAI commits to notify and challenge unreasonable requests where possible. While these measures do not eliminate the risk, it is considered sufficiently mitigated to justify the transfer.
+                </li>
+                <li>
+                    <strong>Organizational Measures by the Physician:</strong>
+                    The physician and any clinic staff are trained in proper use of the system. Written procedures specify how to handle recordings securely (e.g., not sharing recordings via insecure channels, only using the approved app). Patients are informed in advance (typically via information at the start of the consultation or in the treatment agreement) that the consultation may be recorded and automatically transcribed, so they are aware. Patients may opt out; in such cases, the physician will use standard manual note-taking. This transparency builds trust and ensures compliance with information obligations.
+                </li>
+                <li>
+                    <strong>Quality Control of Output:</strong>
+                    To address the risk of errors in the note (integrity risk), the physician has implemented a routine to thoroughly review the AI-generated note before finalizing it. All medical assessments in the note are verified and corrected by the physician. The AI assistant is used solely as a drafting tool, not as a decision-maker. This ensures the clinical record remains accurate and up-to-date.
+                </li>
+                <li>
+                    <strong>Ongoing Evaluation and Revision:</strong>
+                    The solution will be regularly evaluated for privacy and security. The DPIA will be updated if changes occur (e.g., if OpenAI updates its terms or new regulatory guidance emerges). The clinic has appointed <input type="text" id="edit-auditor" class="editable" value="Data Protection Officer / Responsible Person"> as responsible for monitoring that measures are effective and that no data breaches have occurred.
+                </li>
+                <li>
+                    <strong>Additional Assessment – Compliance with Norm § 5.7 on Audit Rights and Deletion:</strong>
+                    OpenAI, as the data processor, does not provide individual physical audit access but provides independent third-party audit reports (SOC 2 Type II) and ISO 27001 certification. This is deemed to satisfy audit rights requirements under Norm § 5.7. Upon termination of the processing agreement with OpenAI, written confirmation of deletion or return of all processed personal data will be obtained, as required by Norm § 5.7. Overall, the data processor agreement, together with these additional measures, is assessed to meet Norm requirements for processor relationships responsibly.
+                </li>
+            </ul>
+            <h2>6. Conclusion of the Data Protection Impact Assessment</h2>
+            <p>
+                <strong>Summary and Acceptance of Risks:</strong>
+                <textarea id="edit-conclusion" class="editable">After reviewing the above assessments, we conclude that the risks associated with this processing of patient data have been reduced to an acceptable level through the measures implemented. The purpose (efficient record-keeping) is achieved in a way that respects patient privacy as much as possible. Some residual risk remains regarding transfer to the USA (government access beyond our control) and the handling of health data by a cloud provider. However, this risk is assessed as low and justified when weighed against the benefits to patient care. Hosting the web application on an external server (one.com) poses no direct privacy risk since no data processing occurs on that server—the application serves only as an interface between the physician's device and OpenAI. No identified risks are assessed as "high risk" after mitigation; therefore, prior consultation with the Data Protection Authority is not required. Although the data processor agreement with OpenAI does not contain explicit clauses on third-party audit rights in accordance with Norm § 5.7, we have documented how available audit reports (SOC 2 Type II) compensate for this, and procedures for obtaining deletion confirmations upon contract termination have been established.</textarea>
+            </p>
+            <p>
+                Decision: The solution may be implemented provided that all described measures are maintained. The DPIA shall be reviewed by <input type="text" id="edit-review-date" class="editable" value="10.4.26"> or earlier if significant changes occur.
+            </p>
+            <p>
+                <strong>Approval:</strong><br/>
+                Data Controller: <input type="text" id="edit-approver" class="editable" value="Dr. Legesen">
+                (Signature)<br/>
+                Date: <input type="text" id="edit-approval-date" class="editable" value="10.4.25">
+            </p>
+            <div class="controls">
+                <button id="generatePdfBtn">Generate PDF</button>
+                <button id="previewPdfBtn">Preview PDF</button>
+            </div>
+        </div>
+        <!-- PDF VERSION (Hidden by default, shown when generating PDF) -->
+        <div class="pdf-document" id="pdfVersion">
+        </div>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+        <script>
+            function updatePdfContent() {
+                const pdfContent = document.getElementById('pdfVersion');
+                pdfContent.innerHTML = `
+    <h1>Data Protection Impact Assessment (DPIA)</h1>
+    <h2>AI-Based Clinical Note Assistant for Patient Consultations</h2>
+    <p><strong>Data Controller:</strong> ${document.getElementById('edit-data-controller').value}</p>
+    <p><strong>Purpose of Data Processing:</strong> ${document.getElementById('edit-purpose').value}</p>
+    <p><strong>Date:</strong> ${document.getElementById('edit-date').value}, <strong>Person Responsible for the Assessment:</strong> ${document.getElementById('edit-responsible').value}</p>
+    <hr/>
+    <h2>1. Description of Processing</h2>
+    <p>Description of how personal data is processed in the solution:</p>
+    <ul>
+      <li>The physician records audio of the patient consultation (the conversation between the physician and patient).</li>
+      <li>The audio recording is securely (encrypted) transmitted over the internet to the OpenAI Whisper API, which automatically transcribes the audio to text.</li>
+      <li>The transcribed text (potentially containing the entire dialogue with the patient's health information) is then sent to the OpenAI ChatGPT API, which generates a draft clinical note/summary.</li>
+      <li>The physician receives the generated draft, reviews it, and edits it as needed. The finalized approved clinical note is stored in the patient's record in the physician's electronic health record (EHR) system as usual.</li>
+      <li>No personal data is stored by the app developer. All data exchange occurs directly between the physician's device and OpenAI's cloud services using the physician's own API keys.</li>
+      <li>OpenAI (data processor) does not store the data permanently; submitted audio and text are processed in-memory and deleted continuously from active systems. Only temporary log data (up to 30 days) is maintained to detect misuse and errors, after which it is also automatically deleted.</li>
+    </ul>
+    <p><strong>Types and Scope of Information:</strong> ${document.getElementById('edit-info-types').value}</p>
+    <p><strong>System/Technology:</strong> ${document.getElementById('edit-technology').value}</p>
+    <h2>2. Legal Basis for Processing</h2>
+    <p><strong>Legal Basis for Processing:</strong> The processing is necessary to fulfill the physician's statutory obligation to document healthcare, cf. the Health Personnel Act §39. The legal basis is GDPR Article 6(1)(c) (legal obligation) for record-keeping. For the sensitive health information, GDPR Article 9(2)(h) applies – processing is necessary for the provision of healthcare and carried out by healthcare personnel bound by professional secrecy. This provides a valid exemption for processing of special categories of personal data.</p>
+    <p><em>Note: Patients are informed about this processing in the clinic's privacy policy. Explicit consent is not obtained, as the processing is considered covered by the aforementioned basis as part of healthcare provision. However, patients have the right to information and may request manual record-keeping if they so desire.</em></p>
+    <h2>3. Necessity and Proportionality</h2>
+    <p><strong>Assessment of Necessity Relative to Purpose:</strong></p>
+    <p>${document.getElementById('edit-necessity').value}</p>
+    <p><strong>Assessment of Proportionality and Privacy Principles:</strong></p>
+    <ul>
+      <li><em><u>Data Minimization:</u></em> The solution minimizes personal data by processing only the audio from the consultation—no additional patient data is collected beyond what is spoken. The physician avoids including unnecessary identifiers in the conversation (e.g., national identification numbers are typically not mentioned verbally).</li>
+      <li><em><u>Storage Limitation:</u></em> Data is not stored beyond what is necessary to fulfill the purpose. OpenAI deletes data promptly after processing (no persistent storage beyond temporary security logs). The physician only stores the final clinical note in the patient's record (in accordance with legal requirements for record retention).</li>
+      <li><em><u>Integrity and Confidentiality:</u></em> Technical and organizational measures have been implemented to protect the data (see Section 5 on measures). All processing is subject to professional secrecy. The clinical note is reviewed by the physician for accuracy before use.</li>
+      <li><em><u>Purpose Limitation:</u></em> Information from the consultation is used solely for one purpose: generating a clinical note for the current patient's treatment. It is not used for any other purpose by the physician or OpenAI.</li>
+    </ul>
+    <h2>4. Risk Assessment for Data Subjects</h2>
+    <p>This section identifies potential privacy risks to patients (data subjects) associated with this data processing:</p>
+    <ul>
+      <li><strong>Unauthorized Access (Confidentiality):</strong> Risk that unauthorized parties may access patient information during transmission or processing. This could occur through hacking attempts on OpenAI or if data is unlawfully disclosed to a third party (e.g., foreign government authorities since data is transferred to the USA). The consequence would be a breach of professional secrecy and potential harm to the patient if sensitive information is exposed.</li>
+      <li><strong>Inaccuracies or Modification of Content (Integrity):</strong> Risk that the AI service mis-transcribes or mis-summarizes, resulting in a misleading or incorrect clinical note. This could affect patient rights (incorrect treatment based on erroneous information) and patient trust. (Note: this is also a patient safety risk and a privacy concern if incorrect personal data is recorded.)</li>
+      <li><strong>Data Unavailability or Loss:</strong> Risk that the recording or generated note is lost during processing due to technical failures, resulting in missing important consultation information. The patient's medical history may become incomplete. (This risk is mitigated by the physician's ability to write the note manually if an error occurs.)</li>
+      <li><strong>Use of Data Beyond Intended Purpose:</strong> Risk that OpenAI could use patient data for purposes other than providing the service, such as model development or sharing with subcontractors. According to the agreement, this should not occur, but there is a theoretical risk if a contractual breach or policy change occurs. Even temporary storage for 30 days poses a possibility for internal access to the data by the provider.</li>
+      <li><strong>Transfer to Third Countries:</strong> Since data is sent to the USA, there is a risk that U.S. intelligence agencies may be compelled to provide access to the data (e.g., FISA 702/Cloud Act). Patient information subject to Norwegian confidentiality rules could be disclosed without the patient or physician's knowledge. Although the probability is considered low for individual consultations, the impact would be severe.</li>
+      <li><strong>Web Application Compromise:</strong> Although the web application (on fastlegen.com) does not process patient data directly, there is a risk that the application could be compromised and modified to send data to unauthorized third parties. This risk is mitigated by secure account management with 2FA and regular security reviews of the code.</li>
+      <li><strong>Patient Rights:</strong> The patient's rights to access and correction/deletion are somewhat complicated: the audio recording and AI processing are transient, so the patient cannot access the "AI processing" at OpenAI (which is deleted within a few weeks). However, the patient can access the final clinical note held by the physician. The risk is that the patient may not fully understand or control this intermediate processing, which could undermine trust.</li>
+    </ul>
+    <p><strong>Assessment of Severity and Likelihood of Risks:</strong> ${document.getElementById('edit-risk-assessment').value}</p>
+    <h2>5. Measures to Mitigate Risks</h2>
+    <p>The following technical and organizational measures have been implemented or planned to mitigate the identified risks:</p>
+    <ul>
+      <li><strong>Data Processor Agreement with OpenAI:</strong> A written agreement has been established requiring OpenAI to process the data confidentially and only on the physician's instructions. The agreement specifies that the data is not used for any other purpose (e.g., AI model training) and that it is deleted after processing. Standard Contractual Clauses (SCC) are included to cover transfers out of the EEA, and OpenAI has confirmed compliance with GDPR requirements.</li>
+      <li><strong>Encryption and Secure Transmission:</strong> All communications between the physician's device and OpenAI's API are encrypted (HTTPS/TLS). This prevents eavesdropping during transport. API keys are used for authentication and kept confidential; they are stored securely on the physician's device and rotated regularly if compromise is suspected.</li>
+      <li><strong>Security Measures for the Web Application:</strong> The domain fastlegen.com and hosting on one.com are secured with two-factor authentication (2FA) for administrative access. The application's source code is regularly reviewed for vulnerabilities, and security updates are applied promptly. The application is designed so that all data processing occurs directly between the physician's device and OpenAI, without intermediate storage on the web server.</li>
+      <li><strong>Limited Storage and Deletion:</strong> OpenAI retains data for a maximum of 30 days in its systems for operational security and misuse detection. After this period, logs are automatically deleted. The audio recording and transcription are not permanently stored in the cloud. The physician also does not retain the audio recording after the note is generated and quality-checked, unless needed for documentation of an incident. This measure ensures that patient data is not retained longer than absolutely necessary.</li>
+      <li><strong>Additional Measures for Third Country Transfers:</strong> A Transfer Impact Assessment (TIA) has been conducted to evaluate U.S. legislation against privacy risks. As a mitigating measure, directly identifying information is not included in the transmitted text (for example, the physician avoids dictating full names or social security numbers). This reduces potential harm if data is exposed. Furthermore, the provider is subject to EU Model Clauses for legal protection. If U.S. authorities request data disclosure, OpenAI commits to notify and challenge unreasonable requests where possible. While these measures do not eliminate the risk, it is considered sufficiently mitigated to justify the transfer.</li>
+      <li><strong>Organizational Measures by the Physician:</strong> The physician and any clinic staff are trained in proper use of the system. Written procedures specify how to handle recordings securely (e.g., not sharing recordings via insecure channels, only using the approved app). Patients are informed in advance (typically via information at the start of the consultation or in the treatment agreement) that the consultation may be recorded and automatically transcribed, so they are aware. Patients may opt out; in such cases, the physician will use standard manual note-taking. This transparency builds trust and ensures compliance with information obligations.</li>
+      <li><strong>Quality Control of Output:</strong> To address the risk of errors in the note (integrity risk), the physician has implemented a routine to thoroughly review the AI-generated note before finalizing it. All medical assessments in the note are verified and corrected by the physician. The AI assistant is used solely as a drafting tool, not as a decision-maker. This ensures the clinical record remains accurate and up-to-date.</li>
+      <li><strong>Ongoing Evaluation and Revision:</strong> The solution will be regularly evaluated for privacy and security. The DPIA will be updated if changes occur (e.g., if OpenAI updates its terms or new regulatory guidance emerges). The clinic has appointed ${document.getElementById('edit-auditor').value} as responsible for monitoring that measures are effective and that no data breaches have occurred.</li>
+      <li><strong>Additional Assessment – Compliance with Norm § 5.7 on Audit Rights and Deletion:</strong> OpenAI, as the data processor, does not provide individual physical audit access but provides independent third-party audit reports (SOC 2 Type II) and ISO 27001 certification. This is deemed to satisfy audit rights requirements under Norm § 5.7. Upon termination of the processing agreement with OpenAI, written confirmation of deletion or return of all processed personal data will be obtained, as required by Norm § 5.7. Overall, the data processor agreement, together with these additional measures, is assessed to meet Norm requirements for processor relationships responsibly.</li>
+    </ul>
+    <h2>6. Conclusion of the Data Protection Impact Assessment</h2>
+    <p><strong>Summary and Acceptance of Risks:</strong> ${document.getElementById('edit-conclusion').value}</p>
+    <p>Decision: The solution may be implemented provided that all described measures are maintained. The DPIA shall be reviewed by ${document.getElementById('edit-review-date').value} or earlier if significant changes occur.</p>
+    <p><strong>Approval:</strong><br/> Data Controller: ${document.getElementById('edit-approver').value} (Signature)<br/> Date: ${document.getElementById('edit-approval-date').value}</p>
+  `;
+            }
+
+            function generatePDF() {
+                updatePdfContent();
+                document.querySelector('.edit-mode').style.display = 'none';
+                document.getElementById('pdfVersion').style.display = 'block';
+                setTimeout(() => {
+                    window.print();
+                    setTimeout(() => {
+                        document.querySelector('.edit-mode').style.display = 'block';
+                        document.getElementById('pdfVersion').style.display = 'none';
+                    }, 1000);
+                }, 300);
+            }
+
+            function previewPDF() {
+                updatePdfContent();
+                document.querySelector('.edit-mode').style.display = 'none';
+                document.getElementById('pdfVersion').style.display = 'block';
+                const backButton = document.createElement('button');
+                backButton.textContent = 'Back to Editing';
+                backButton.style.padding = '10px 15px';
+                backButton.style.background = '#2E5E4E';
+                backButton.style.color = 'white';
+                backButton.style.border = 'none';
+                backButton.style.cursor = 'pointer';
+                backButton.style.marginTop = '20px';
+                backButton.onclick = function() {
+                    document.querySelector('.edit-mode').style.display = 'block';
+                    document.getElementById('pdfVersion').style.display = 'none';
+                    this.remove();
+                };
+                document.getElementById('pdfVersion').appendChild(backButton);
+            }
+
+            document.getElementById('generatePdfBtn').addEventListener('click', generatePDF);
+            document.getElementById('previewPdfBtn').addEventListener('click', previewPDF);
+        </script>
+    </body>
+</html>

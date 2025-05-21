@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Transfer Impact Assessment (TIA) - Overføring av helsedata til OpenAI</title>
+<style>
+  body { 
+    font-family: Arial, sans-serif; 
+    margin: 2em; 
+    line-height: 1.5;
+    color: #333;
+    font-size: 12pt;
+  }
+  h1, h2, h3 { color: #2E5E4E; }
+  
+  /* Redigerbare felt */
+  .editable {
+    border: 1px solid #888;
+    padding: 4px;
+    background-color: #f8f8f8;
+    min-height: 1.5em;
+  }
+  
+  input.editable {
+    width: 50%;
+  }
+  
+  textarea.editable {
+    width: 100%;
+    min-height: 100px;
+  }
+  
+  /* PDF-modus */
+  .pdf-document {
+    display: none;
+    max-width: 210mm; /* A4 bredde */
+    margin: 0 auto;
+    font-size: 12pt;
+  }
+  
+  .pdf-document p, .pdf-document li {
+    margin-bottom: 0.5em;
+  }
+  
+  /* Knapper og kontroller */
+  .controls {
+    margin: 20px 0;
+    display: flex;
+    gap: 10px;
+  }
+  
+  .controls button {
+    padding: 10px 15px;
+    background: #2E5E4E;
+    color: white;
+    border: none;
+    cursor: pointer;
+  }
+  
+  .controls button:hover {
+    opacity: 0.9;
+  }
+  
+  /* Risikovurderingstabell */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+  }
+  
+  th, td {
+    border: 1px solid #ddd;
+    padding: 8px;
+    text-align: left;
+  }
+  
+  th {
+    background-color: #f2f2f2;
+  }
+  
+  select.risk-level {
+    width: 100%;
+  }
+  
+  /* Skjul elementer i PDF */
+  @media print {
+    .controls, button, .edit-mode {
+      display: none !important;
+    }
+    .pdf-document {
+      display: block !important;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- REDIGÉRBAR VERSJON -->
+<div class="edit-mode">
+  <h1>Transfer Impact Assessment (TIA)</h1>
+  <h2>Vurdering av overføring av helsedata til OpenAI i USA</h2>
+
+  <p><strong>Behandlingsansvarlig:</strong> 
+    <input type="text" id="edit-behandlingsansvarlig" class="editable" value="Lege Legesen">
+  </p>
+
+  <p><strong>Databehandler:</strong> 
+    <input type="text" id="edit-databehandler" class="editable" value="OpenAI Ireland Ltd, Irland (videre overføring til OpenAI LLC, USA)">
+  </p>
+
+  <p>
+    <strong>Dato for vurdering:</strong> <input type="text" id="edit-dato" class="editable" style="width:120px;" value="10.4.25">, 
+    <strong>Ansvarlig for vurderingen:</strong> <input type="text" id="edit-ansvarlig" class="editable" value="Lege Legesen">
+  </p>
+
+  <hr/>
+
+  <h2>1. Formål med Transfer Impact Assessment (TIA)</h2>
+  <p>Denne vurderingen er gjennomført i henhold til krav i Schrems II-dommen og GDPR artikkel 44-50 for å sikre at overføring av personopplysninger til tredjeland skjer med tilstrekkelige garantier. Vurderingen tar spesielt hensyn til sensitive helseopplysninger og er et nødvendig vedlegg til DPIA for bruk av AI-notattjenesten via OpenAI.</p>
+  
+  <h2>2. Beskrivelse av dataoverføringen</h2>
+  
+  <h3>2.1 Hvilke data overføres?</h3>
+  <textarea id="edit-data-type" class="editable">Følgende data overføres til OpenAI i USA:
+1. Lydopptak av pasientkonsultasjoner (via Whisper API)
+2. Transkriberte samtaler mellom lege og pasient (via GPT API)
+
+Dataene inneholder helseopplysninger (særlige kategorier av personopplysninger iht. GDPR artikkel 9) som:
+- Symptombeskrivelser
+- Medisinske vurderinger
+- Diagnoseinformasjon
+- Behandlingshistorikk
+
+Dataene kan også inneholde indirekte identifikatorer som:
+- Fornavn (avhengig av samtaleinnhold)
+- Alder
+- Kontekstuelle opplysninger som kan bidra til identifisering
+
+Vi unngår bevisst å inkludere direkte identifikatorer som:
+- Fødselsnummer/personnummer
+- Fulle navn
+- Adresseinformasjon</textarea>
+  
+  <h3>2.2 Formål med overføringen</h3>
+  <textarea id="edit-overforingsformaal" class="editable">Formålet med dataoverføringen er:
+1. Automatisk transkribering av lydopptaket til tekst (via Whisper API)
+2. Generering av et strukturert journalnotat basert på transkripsjonen (via GPT API)
+
+Overføringen er nødvendig for å:
+- Effektivisere journalføringsprosessen
+- Potensielt forbedre kvaliteten på dokumentasjonen
+- Redusere den administrative byrden for helsepersonell
+
+Øvrige alternativer som ble vurdert:
+- Manuell transkribering og journalføring (mer tidkrevende)
+- Bruk av lokale AI-modeller (utilstrekkelig kvalitet/ytelse)
+- Europeiske tjenesteleverandører (mer begrenset språkstøtte for norsk)
+
+Basert på ovennevnte vurdering, anses overføringen til OpenAI å være nødvendig for å oppnå formålet om effektiv journalføring på en kvalitetsmessig god måte.</textarea>
+  
+  <h3>2.3 Teknisk metode for overføring</h3>
+  <textarea id="edit-teknisk-metode" class="editable">Data overføres via HTTPS/TLS-krypterte API-kall direkte fra legens enhet til OpenAI's servere i USA.
+
+Tekniske detaljer:
+- TLS 1.3 med sterk kryptering
+- API-nøkkelauthentisering
+- Ingen mellomliggende servere som mellomlagrer dataene
+- Kryptert overføring hele veien
+
+Overføringen skjer ad-hoc ved behov, og data lagres ikke permanent hos OpenAI etter behandling.</textarea>
+  
+  <h2>3. Vurdering av lovgivningen i USA</h2>
+  
+  <h3>3.1 Relevant lovgivning som kan påvirke dataene</h3>
+  <textarea id="edit-us-lovgivning" class="editable">Følgende lover i USA kan potensielt gi myndighetene tilgang til de overførte dataene:
+
+1. Foreign Intelligence Surveillance Act (FISA) Section 702
+   - Tillater innsamling av data fra "ikke-amerikanske personer" for etterretningsformål
+   - Kan gi myndighetene mulighet til å be om data fra OpenAI om spesifikke individer
+
+2. USA CLOUD Act
+   - Gir amerikanske myndigheter rett til å kreve data fra amerikanske selskaper, uavhengig av hvor dataene er lagret
+   - Kan potensielt anvendes selv om dataene skulle være lagret utenfor USA
+
+3. Executive Order 12333
+   - Gir etterretningstjenester bredere myndighet til overvåkning
+   - Mindre relevant for direkte dataforespørsler til OpenAI, men kan påvirke data i transit
+
+Begrensende faktorer:
+- Individuelle pasientdata er sannsynligvis ikke av interesse for amerikansk etterretning
+- Data slettes innen 30 dager hos OpenAI, noe som begrenser mulighetsvinduet
+- Executive Order 14086 (se punkt 4) innfører nye begrensninger for etterretningsvirksomhet</textarea>
+  
+  <h3>3.2 Risikovurdering av lovgivningen</h3>
+  <textarea id="edit-lovgivning-risiko" class="editable">Basert på gjennomgangen av amerikanske lover, vurderes følgende risikoer:
+
+1. FISA 702 og CLOUD Act utgjør de primære juridiske risikofaktorene, da de kan gi myndighetene hjemmel til å kreve pasientdata fra OpenAI.
+
+2. I praksis vurderes risikoen som begrenset av følgende faktorer:
+   - Helseopplysninger om norske pasienter er sannsynligvis ikke av interesse for amerikansk etterretning
+   - Volum og art av dataene (tilfeldige pasientkonsultasjoner) har begrenset etterretningsmessig verdi
+   - Dataene er kun kortvarig tilgjengelige hos OpenAI (maks 30 dager)
+   - Manglende direkte identifikatorer reduserer dataenes sensitivitet
+
+3. Til tross for disse begrensende faktorene, kan vi ikke fullstendig eliminere risikoen for myndighetstilgang, og dette må aksepteres som en restrisiko hvis man skal bruke OpenAI's tjenester.</textarea>
+  
+  <h2>4. EU-US Data Privacy Framework (DPF)</h2>
+  
+  <h3>4.1 Relevans av DPF for overføringen</h3>
+  <textarea id="edit-dpf-relevans" class="editable">EU-US Data Privacy Framework (DPF) er et nytt rammeverk som ble vedtatt av Europakommisjonen i juli 2023. Dette rammeverket erstatter Privacy Shield som ble ugyldiggjort av Schrems II-dommen i 2020. DPF er relevant for overføringen fordi:
+
+1. Det gir et nytt juridisk grunnlag for overføring av personopplysninger til USA
+2. Det introduserer sterkere garantier mot ubegrenset myndighetstilgang
+3. Det etablerer en uavhengig klageordning for europeiske borgere
+
+DPF er basert på Executive Order 14086 (utgitt oktober 2022) som:
+- Innfører prinsippet om nødvendighet og proporsjonalitet for amerikansk etterretningsvirksomhet
+- Begrenser bulk-innsamling av data
+- Krever at myndigheters datainnsamling må være målrettet og begrenset
+
+DPF etablerer også:
+- Data Protection Review Court (DPRC) - en ny, uavhengig klageinstans for europeiske borgere
+- Civil Liberties Protection Officer (CLPO) - en uavhengig første instans for behandling av klager
+
+OpenAI er sertifisert under EU-US Data Privacy Framework, noe som betyr at selskapet har forpliktet seg til å følge rammeverkets krav og prinsipper.</textarea>
+  
+  <h3>4.2 Begrensninger ved DPF</h3>
+  <textarea id="edit-dpf-begrensninger" class="editable">Til tross for forbedringene DPF representerer, har rammeverket fortsatt visse begrensninger:
+
+1. Juridisk usikkerhet: 
+   - DPF er relativt nytt og har ikke blitt testet i domstolene
+   - Det er risiko for at rammeverket kan bli utfordret juridisk (potensielt "Schrems III")
+   - Ekvivalensvedtaket fra Kommisjonen er ikke endelig rettskraftig i alle EU-jurisdiksjoner
+
+2. Praktiske begrensninger:
+   - Klageordningen (DPRC) er uprøvd og effektiviteten er usikker
+   - Prosessen for å få innsyn i eller bestride myndighetstilgang er kompleks
+   - Individuelle rettigheter kan være vanskelige å håndheve i praksis
+
+3. Omfang og begrensninger:
+   - Beskytter primært mot masseovervåkning, mindre effektivt mot målrettede forespørsler
+   - Gjelder kun sertifiserte organisasjoner
+   - Kan ikke fullstendig eliminere risikoen for myndighetstilgang
+
+Gitt disse begrensningene, er det nødvendig å implementere supplerende tiltak for å sikre tilstrekkelig beskyttelse av helseopplysninger.</textarea>
+  
+  <h2>5. Supplerende tiltak</h2>
+  
+  <h3>5.1 Tekniske tiltak</h3>
+  <textarea id="edit-tekniske-tiltak" class="editable">Følgende tekniske tiltak er implementert for å redusere risikoen ved overføring til USA:
+
+1. Dataminimering og pseudonymisering:
+   - Unngår bevisst å inkludere direkte identifikatorer i overførte data
+   - Legen instrueres om å ikke bruke fullt navn eller personnummer i opptaket
+   - Bruker kun nødvendige data for formålet
+
+2. Sikker overføring:
+   - All kommunikasjon er kryptert med HTTPS/TLS
+   - Sterk autentisering med API-nøkler
+   - Regelmessig rotasjon av API-nøkler
+
+3. Begrenset lagringstid:
+   - Ingen permanent lagring av data hos OpenAI
+   - Automatisk sletting av loggdata etter maks 30 dager
+   - Ingen lokal lagring av lydopptak etter transkribering
+
+4. Segmentering av data:
+   - Pasientidentifikatorer holdes separat i lokalt journalsystem
+   - Kobling mellom notat og pasient skjer kun lokalt hos legen
+   - Ved konsultasjoner med særlig sensitivt innhold brukes manuell journalføring
+</textarea>
+  
+  <h3>5.2 Kontraktsmessige tiltak</h3>
+  <textarea id="edit-kontraktsmessige-tiltak" class="editable">Følgende kontraktsmessige tiltak er implementert:
+
+1. Databehandleravtale (DPA) med OpenAI som inkluderer:
+   - Spesifikke formålsbegrensninger
+   - Forbud mot bruk av dataene til modelltrening eller andre formål
+   - Krav om umiddelbar varsling ved sikkerhetsbrudd
+   - Forpliktelser til å slette data etter behandling
+
+2. Standard Contractual Clauses (SCC):
+   - Oppdaterte EU-standardavtalevilkår (2021-versjonen)
+   - Spesifikke moduler for behandler-til-behandler overføring
+   - Jurisdiksjonsklausul som sikrer at EU/EØS-lov gjelder for avtalen
+
+3. DPF-sertifisering:
+   - OpenAI er sertifisert under EU-US Data Privacy Framework
+   - Forpliktelse til å oppfylle DPF-prinsipper
+   - Mulighet for klagemulighet via Data Protection Review Court
+
+4. Transparensforpliktelser:
+   - OpenAI skal, i den grad det er lovlig, varsle om myndighetspålegg
+   - Forpliktelse til å utfordre urimelige myndighetspålegg
+   - Rapportering om antall og type myndighetspålegg mottatt
+
+5. Ansvar og erstatning:
+   - Tydelige ansvarsbestemmelser ved brudd på avtalen
+   - Erstatningsforpliktelser ved uautorisert behandling
+   - Rett til å heve avtalen ved manglende overholdelse</textarea>
+  
+  <h3>5.3 Organisatoriske tiltak</h3>
+  <textarea id="edit-organisatoriske-tiltak" class="editable">Følgende organisatoriske tiltak er implementert:
+
+1. Opplæring og bevisstgjøring:
+   - Helsepersonell som bruker systemet får grundig opplæring
+   - Klare rutiner for hvilke opplysninger som kan inkluderes i opptak
+   - Bevisstgjøring om risiko ved overføring til tredjeland
+
+2. Pasientinformasjon:
+   - Pasienter informeres om bruk av AI-verktøy i journalføring
+   - Informasjon om dataoverføring inkluderes i klinikkens personvernerklæring
+   - Pasienter kan be om manuell journalføring uten AI-bruk
+
+3. Prosedyrer for hendelseshåndtering:
+   - Etablerte rutiner for håndtering av personvernbrudd
+   - Klare ansvarsforhold ved sikkerhetshendelser
+   - Prosedyrer for varsling til pasienter og Datatilsynet ved relevante hendelser
+
+4. Kontinuerlig evaluering:
+   - Regelmessig gjennomgang av risikovurderingen
+   - Oppdatering av TIA ved endringer i lovverk eller tjenestetilbud
+   - Årlig revisjon av om tiltakene er tilstrekkelige
+
+5. Dokumentasjon:
+   - Detaljert dokumentasjon av alle sikkerhetstiltak
+   </textarea>
+  
+  <h2>6. Risikovurdering</h2>
+  
+  <table>
+    <tr>
+      <th>Risiko</th>
+      <th>Sannsynlighet</th>
+      <th>Konsekvens</th>
+      <th>Samlet risiko</th>
+      <th>Risikobeskrivelse</th>
+    </tr>
+    <tr>
+      <td>Myndighetstilgang (FISA 702, CLOUD Act)</td>
+      <td>
+        <select id="edit-risk1-s" class="risk-level">
+          <option value="lav">Lav</option>
+          <option value="middels">Middels</option>
+          <option value="høy">Høy</option>
+        </select>
+      </td>
+      <td>
+        <select id="edit-risk1-k" class="risk-level">
+          <option value="lav">Lav</option>
+          <option value="middels">Middels</option>
+          <option value="høy" selected>Høy</option>
+        </select>
+      </td>
+      <td>
+        <select id="edit-risk1-t" class="risk-level">
+          <option value="lav">Lav</option>
+          <option value="middels" selected>Middels</option>
+          <option value="høy">Høy</option>
+        </select>
+      </td>
+      <td>
+        <textarea id="edit-risk1-desc" class="editable" style="min-height:60px;">Lav sannsynlighet grunnet manglende etterretningsverdi i tilfeldig pasientdata, men høy konsekvens hvis det skulle skje. DPF og Executive Order 14086 reduserer risikoen ytterligere.</textarea>
+      </td>
+    </tr>
+    <tr>
+      <td>Uautorisert bruk av data hos OpenAI</td>
+      <td>
+        <select id="edit-risk2-s" class="risk-level">
+          <option value="lav" selected>Lav</option>
+          <option value="middels">Middels</option>
+          <option value="høy">Høy</option>
+        </select>
+      </td>
+      <td>
+        <select id="edit-risk2-k" class="risk-level">
+          <option value="lav">Lav</option>
+          <option value="middels" selected>Middels</option>
+          <option value="høy">Høy</option>
+        </select>
+      </td>
+      <td>
+        <select id="edit-risk2-t" class="risk-level">
+          <option value="lav" selected>Lav</option>
+          <option value="middels">Middels</option>
+          <option value="høy">Høy</option>
+        </select>
+      </td>
+      <td>
+        <textarea id="edit-risk2-desc" class="editable" style="min-height:60px;">Lav sannsynlighet grunnet kontraktuelle forpliktelser og OpenAIs interesse av å beskytte sin forretningsmodell. DPA og DPF-sertifisering gir ytterligere garantier.</textarea>
+      </td>
+    </tr>
+    <tr>
+      <td>Datainnbrudd hos OpenAI</td>
+      <td>
+        <select id="edit-risk3-s" class="risk-level">
+          <option value="lav" selected>Lav</option>
+          <option value="middels">Middels</option>
+          <option value="høy">Høy</option>
+        </select>
+      </td>
+      <td>
+        <select id="edit-risk3-k" class="risk-level">
+          <option value="lav">Lav</option>
+          <option value="middels">Middels</option>
+          <option value="høy" selected>Høy</option>
+        </select>
+      </td>
+      <td>
+        <select id="edit-risk3-t" class="risk-level">
+          <option value="lav">Lav</option>
+          <option value="middels" selected>Middels</option>
+          <option value="høy">Høy</option>
+        </select>
+      </td>
+      <td>
+        <textarea id="edit-risk3-desc" class="editable" style="min-height:60px;">Lav sannsynlighet gitt OpenAIs sikkerhetstiltak, men høy konsekvens hvis det skulle skje. Pseudonymisering og kort lagringstid reduserer risikoen.</textarea>
+      </td>
+    </tr>
+    <tr>
+      <td>Juridisk utfordring av DPF (Schrems III)</td>
+      <td>
+        <select id="edit-risk4-s" class="risk-level">
+          <option value="lav">Lav</option>
+          <option value="middels" selected>Middels</option>
+          <option value="høy">Høy</option>
+        </select>
+      </td>
+      <td>
+        <select id="edit-risk4-k" class="risk-level">
+          <option value="lav">Lav</option>
+          <option value="middels" selected>Middels</option>
+          <option value="høy">Høy</option>
+        </select>
+      </td>
+      <td>
+        <select id="edit-risk4-t" class="risk-level">
+          <option value="lav">Lav</option>
+          <option value="middels" selected>Middels</option>
+          <option value="høy">Høy</option>
+        </select>
+      </td>
+      <td>
+        <textarea id="edit-risk4-desc" class="editable" style="min-height:60px;">Middels sannsynlighet basert på historisk presedens (Schrems I og II). Kontinuerlig overvåkning av juridisk utvikling er nødvendig.</textarea>
+      </td>
+    </tr>
+  </table>
+  
+  <h2>7. Konklusjon</h2>
+  <textarea id="edit-konklusjon" class="editable">Etter en grundig vurdering av dataoverføringen til OpenAI i USA, med spesiell vekt på amerikansk lovgivning og tilgjengelige beskyttelsesmekanismer, konkluderer vi med følgende:
+
+1. Overføringen kan gjennomføres med akseptabel risiko gitt de implementerte tiltakene, men det gjenstår en viss restrisiko som må aksepteres.
+
+2. Den primære juridiske mekanismen for overføringen er en kombinasjon av:
+   - OpenAIs sertifisering under EU-US Data Privacy Framework (DPF)
+   - Standard Contractual Clauses (SCC)
+   - Omfattende tekniske og organisatoriske tiltak som beskrevet i denne vurderingen
+
+3. Til tross for visse begrensninger i DPF, gir den samlede pakken av tiltak tilstrekkelig beskyttelse for denne spesifikke databehandlingen, gitt:
+   - Dataenes begrensede omfang og korte lagringstid
+   - Den lave sannsynligheten for interesse fra amerikanske myndigheter
+
+4. For å opprettholde et akseptabelt risikonivå skal:
+   - Denne vurderingen revideres årlig
+   - Endringer i juridiske rammeverk overvåkes kontinuerlig
+   - Teknologiske alternativer i Europa evalueres fortløpende
+
+5. Basert på denne helhetsvurderingen, godkjennes overføringen av pasientdata til OpenAI for det spesifiserte formålet, med forbehold om at de beskrevne tiltakene implementeres og vedlikeholdes.</textarea>
+  
+  <p><strong>Godkjenning av TIA:</strong> <br/>
+  Ansvarlig behandlingsansvarlig: <input type="text" id="edit-godkjenner" class="editable" value="Dr Lege Legesen"> (signatur) <br/>
+  Dato: <input type="text" id="edit-godkjenningsdato" class="editable" value="10.4.25">
+  </p>
+
+  <!-- Knapper for generering -->
+  <div class="controls">
+    <button id="generatePdfBtn">Generer PDF</button>
+    <button id="previewPdfBtn">Forhåndsvis PDF</button>
+  </div>
+</div>
+
+<!-- PDF VERSJON (Skjult som standard, vises ved PDF-generering) -->
+<div class="pdf-document" id="pdfVersion">
+  <!-- Innholdet blir generert av JavaScript -->
+</div>
+
+<!-- jsPDF-bibliotek -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+<script>
+// Funksjon for å oppdatere PDF-versjonen med verdier fra redigerbare felt
+function updatePdfContent() {
+  const pdfContent = document.getElementById('pdfVersion');
+  
+  // Grunnleggende HTML-struktur for PDF-dokumentet
+  pdfContent.innerHTML = `
+    <h1>Transfer Impact Assessment (TIA)</h1>
+    <h2>Vurdering av overføring av helsedata til OpenAI i USA</h2>
+    
+    <p><strong>Behandlingsansvarlig:</strong> ${document.getElementById('edit-behandlingsansvarlig').value}</p>
+    
+    <p><strong>Databehandler:</strong> ${document.getElementById('edit-databehandler').value}</p>
+    
+    <p><strong>Dato for vurdering:</strong> ${document.getElementById('edit-dato').value}, 
+    <strong>Ansvarlig for vurderingen:</strong> ${document.getElementById('edit-ansvarlig').value}</p>
+    
+    <hr/>
+    
+    <h2>1. Formål med Transfer Impact Assessment (TIA)</h2>
+    <p>Denne vurderingen er gjennomført i henhold til krav i Schrems II-dommen og GDPR artikkel 44-50 for å sikre at overføring av personopplysninger til tredjeland skjer med tilstrekkelige garantier. Vurderingen tar spesielt hensyn til sensitive helseopplysninger og er et nødvendig vedlegg til DPIA for bruk av AI-notattjenesten via OpenAI.</p>
+    
+    <h2>2. Beskrivelse av dataoverføringen</h2>
+    
+    <h3>2.1 Hvilke data overføres?</h3>
+    <p>${document.getElementById('edit-data-type').value.replace(/\n/g, '<br>')}</p>
+    
+    <h3>2.2 Formål med overføringen</h3>
+    <p>${document.getElementById('edit-overforingsformaal').value.replace(/\n/g, '<br>')}</p>
+    
+    <h3>2.3 Teknisk metode for overføring</h3>
+    <p>${document.getElementById('edit-teknisk-metode').value.replace(/\n/g, '<br>')}</p>
+    
+    <h2>3. Vurdering av lovgivningen i USA</h2>
+    
+    <h3>3.1 Relevant lovgivning som kan påvirke dataene</h3>
+    <p>${document.getElementById('edit-us-lovgivning').value.replace(/\n/g, '<br>')}</p>
+    
+    <h3>3.2 Risikovurdering av lovgivningen</h3>
+    <p>${document.getElementById('edit-lovgivning-risiko').value.replace(/\n/g, '<br>')}</p>
+    
+    <h2>4. EU-US Data Privacy Framework (DPF)</h2>
+    
+    <h3>4.1 Relevans av DPF for overføringen</h3>
+    <p>${document.getElementById('edit-dpf-relevans').value.replace(/\n/g, '<br>')}</p>
+    
+    <h3>4.2 Begrensninger ved DPF</h3>
+    <p>${document.getElementById('edit-dpf-begrensninger').value.replace(/\n/g, '<br>')}</p>
+    
+    <h2>5. Supplerende tiltak</h2>
+    
+    <h3>5.1 Tekniske tiltak</h3>
+    <p>${document.getElementById('edit-tekniske-tiltak').value.replace(/\n/g, '<br>')}</p>
+    
+    <h3>5.2 Kontraktsmessige tiltak</h3>
+    <p>${document.getElementById('edit-kontraktsmessige-tiltak').value.replace(/\n/g, '<br>')}</p>
+    
+    <h3>5.3 Organisatoriske tiltak</h3>
+    <p>${document.getElementById('edit-organisatoriske-tiltak').value.replace(/\n/g, '<br>')}</p>
+    
+    <h2>6. Risikovurdering</h2>
+    
+    <table>
+      <tr>
+        <th>Risiko</th>
+        <th>Sannsynlighet</th>
+        <th>Konsekvens</th>
+        <th>Samlet risiko</th>
+        <th>Risikobeskrivelse</th>
+      </tr>
+      <tr>
+        <td>Myndighetstilgang (FISA 702, CLOUD Act)</td>
+        <td>${document.getElementById('edit-risk1-s').value}</td>
+        <td>${document.getElementById('edit-risk1-k').value}</td>
+        <td>${document.getElementById('edit-risk1-t').value}</td>
+        <td>${document.getElementById('edit-risk1-desc').value.replace(/\n/g, '<br>')}</td>
+      </tr>
+      <tr>
+        <td>Uautorisert bruk av data hos OpenAI</td>
+        <td>${document.getElementById('edit-risk2-s').value}</td>
+        <td>${document.getElementById('edit-risk2-k').value}</td>
+        <td>${document.getElementById('edit-risk2-t').value}</td>
+        <td>${document.getElementById('edit-risk2-desc').value.replace(/\n/g, '<br>')}</td>
+      </tr>
+      <tr>
+        <td>Datainnbrudd hos OpenAI</td>
+        <td>${document.getElementById('edit-risk3-s').value}</td>
+        <td>${document.getElementById('edit-risk3-k').value}</td>
+        <td>${document.getElementById('edit-risk3-t').value}</td>
+        <td>${document.getElementById('edit-risk3-desc').value.replace(/\n/g, '<br>')}</td>
+      </tr>
+      <tr>
+        <td>Juridisk utfordring av DPF (Schrems III)</td>
+        <td>${document.getElementById('edit-risk4-s').value}</td>
+        <td>${document.getElementById('edit-risk4-k').value}</td>
+        <td>${document.getElementById('edit-risk4-t').value}</td>
+        <td>${document.getElementById('edit-risk4-desc').value.replace(/\n/g, '<br>')}</td>
+      </tr>
+    </table>
+    
+    <h2>7. Konklusjon</h2>
+    <p>${document.getElementById('edit-konklusjon').value.replace(/\n/g, '<br>')}</p>
+    
+    <p><strong>Godkjenning av TIA:</strong> <br/>
+    Ansvarlig behandlingsansvarlig: ${document.getElementById('edit-godkjenner').value} (signatur) <br/>
+    Dato: ${document.getElementById('edit-godkjenningsdato').value}
+    </p>
+  `;
+}
+
+// To-stegs PDF-generering som unngår vanlige problemer med kompleks HTML
+function generatePDF() {
+  // Oppdater PDF-versjonen
+  updatePdfContent();
+  
+  // Skjul redigeringsskjermbildet og vis PDF-versjonen
+  document.querySelector('.edit-mode').style.display = 'none';
+  document.getElementById('pdfVersion').style.display = 'block';
+  
+  // Gi browseren tid til å rendere det nye innholdet
+  setTimeout(() => {
+    // Bruk window.print() for å få browserens native utskriftsfunksjon
+    window.print();
+    
+    // Gjenopprett visningen av redigeringsskjermbildet
+    setTimeout(() => {
+      document.querySelector('.edit-mode').style.display = 'block';
+      document.getElementById('pdfVersion').style.display = 'none';
+    }, 1000);
+  }, 300);
+}
+
+// For forhåndsvisning - viser PDF-versjonen uten å generere PDF
+function previewPDF() {
+  // Oppdater PDF-versjonen
+  updatePdfContent();
+  
+  // Skjul redigeringsskjermbildet og vis PDF-versjonen
+  document.querySelector('.edit-mode').style.display = 'none';
+  document.getElementById('pdfVersion').style.display = 'block';
+  
+  // Legg til en "Tilbake til redigering"-knapp
+  const backButton = document.createElement('button');
+  backButton.textContent = 'Tilbake til redigering';
+  backButton.style.padding = '10px 15px';
+  backButton.style.background = '#2E5E4E';
+  backButton.style.color = 'white';
+  backButton.style.border = 'none';
+  backButton.style.cursor = 'pointer';
+  backButton.style.marginTop = '20px';
+  
+  backButton.onclick = function() {
+    document.querySelector('.edit-mode').style.display = 'block';
+    document.getElementById('pdfVersion').style.display = 'none';
+    this.remove();
+  };
+  
+  document.getElementById('pdfVersion').appendChild(backButton);
+}
+
+// Koble knappene til funksjonene
+document.getElementById('generatePdfBtn').addEventListener('click', generatePDF);
+document.getElementById('previewPdfBtn').addEventListener('click', previewPDF);
+</script>
+
+</body>
+</html>

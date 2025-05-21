@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta property="og:title" content="Transcribe Notes">
+  <meta property="og:description" content="Secure AI-powered transcription and note generation for healthcare consultation. No subscription, just pay per use.">
+  <meta property="og:image" content="https://transcribe-notes.netlify.app/Preview.png">
+  <meta property="og:url" content="https://transcribe-notes.netlify.app/">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Transcribe Notes">
+  <meta name="twitter:description" content="Secure AI-powered transcription and note generation for healthcare consultation. No subscription, just pay per use.">
+  <meta name="twitter:image" content="https://transcribe-notes.netlify.app/Preview.png">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="google-site-verification" content="googlecbb704de00a7add2" />
+  <title id="page-title">Transcribe Notes</title>
+  <!-- Import Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Vollkorn&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&family=Merriweather:wght@300;400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@300&display=swap" rel="stylesheet">
+  <style>
+    /* Base styles */
+    body {
+      font-family: 'Roboto', sans-serif;
+      background-color: #f8f8f8;
+      color: #333;
+      margin: 0;
+      padding: 0;
+      text-align: center;
+      position: relative;
+    }
+    header {
+      background: linear-gradient(135deg, #5a9 0%, #489 100%);
+      color: #fff;
+      padding: 40px 20px;
+      text-align: center;
+      position: relative;
+    }
+    header h1 {
+      font-family: 'Vollkorn', sans-serif;
+      font-weight: 300;
+      font-size: 48px;
+      margin: 0;
+    }
+    header p {
+      font-family: 'Vollkorn', sans-serif;
+      font-size: 20px;
+      margin-top: 10px;
+    }
+    /* Language Icon & Dropdown */
+    #lang-container {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      display: flex;
+      align-items: center;
+      z-index: 1000;
+    }
+.accordion-header:first-child {
+  outline: 2px solid #333;
+  outline-offset: 2px;
+}
+    #lang-container img {
+      width: 36px;
+      height: 36px;
+      margin-right: 8px;
+    }
+    #lang-select {
+      padding: 5px;
+      font-size: 18px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+    }
+    p {
+      font-size: 16px;
+    }
+    input[type="text"] {
+      width: 300px;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      font-size: 16px;
+      box-sizing: border-box;
+      margin-bottom: 20px;
+    }
+    input[type="text"]:focus {
+      border-color: #66afe9;
+      box-shadow: 0 0 8px rgba(102,175,233,0.6);
+      outline: none;
+    }
+    button {
+      background-color: #5a9;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 12px 20px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background-color 0.3s, transform 0.1s;
+      margin: 10px;
+    }
+    button:hover {
+      background-color: #489;
+    }
+    button:active {
+      transform: scale(0.98);
+    }
+    .ad-revenue-message {
+      margin-top: 20px;
+      font-size: 18px;
+      font-weight: bold;
+      color: #555;
+    }
+    /* New Horizontal Accordion (Tabbed Interface) */
+    .accordion {
+      margin: 20px auto;
+      max-width: 800px;
+    }
+    .accordion-headers {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .accordion-header {
+      background-color: #5a9;
+      color: #fff;
+      padding: 10px 20px;
+      border: none;
+      cursor: pointer;
+      font-size: 18px;
+      border-radius: 5px;
+      transition: background-color 0.3s;
+    }
+    .accordion-header:hover {
+      background-color: #489;
+    }
+    .accordion-header.active {
+      background-color: #489;
+    }
+    /* New CSS for the API Guide Button */
+    #apiGuideButton {
+      border: 2px solid #333;
+      box-shadow: 0 0 4px rgba(0, 0, 0, 0.1);
+    }
+    .accordion-content-container {
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      padding: 15px;
+      text-align: left;
+      min-height: 100px;
+    }
+    .accordion-hidden-content {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <!-- Language Dropdown -->
+  <div id="lang-container">
+    <img src="language-icon.png" alt="Language Icon">
+    <select id="lang-select">
+      <option value="en">English</option>
+      <option value="no">Norsk</option>
+      <option value="sv">Svenska</option>
+      <option value="de">Deutsch</option>
+      <option value="fr">Français</option>
+      <option value="it">Italiano</option>
+    </select>
+  </div>
+  
+  <header>
+    <h1 id="header-title">Transcribe Notes</h1>
+    <p id="header-subtitle">Advanced AI-Powered Speech-to-Text & Clinical Note Generation for Healthcare Consultations</p>
+  </header>
+  
+  <div class="container">
+    <p id="start-text">To get started, please enter your OpenAI API key:</p>
+    <input type="text" id="apiKeyInput" placeholder="Enter API Key here" autocomplete="off">
+    <br>
+    <button id="enterTranscriptionBtn">Enter Transcription Tool</button>
+    <br>
+    <p class="ad-revenue-message" id="ad-revenue-message">
+      As this website is free to use and relies solely on ad revenue, please consent to personalized ads to help support the service.
+    </p>
+    <div id="offerText"></div>
+  </div>
+
+  <!-- New Horizontal Accordion -->
+  <div class="accordion">
+    <div class="accordion-headers">
+      <button class="accordion-header" data-content-id="guide-p1">API Guide</button>
+      <button class="accordion-header" data-content-id="priceModalText">Price Information</button>
+      <button class="accordion-header" data-content-id="securityModalText">Security Information</button>
+      <button class="accordion-header" data-content-id="aboutModalText">About</button>
+    </div>
+    <div class="accordion-content-container">
+      <!-- Active content will be displayed here -->
+    </div>
+  </div>
+
+  <!-- Hidden Content Containers for Accordion -->
+  <div id="guide-p1" class="accordion-hidden-content">
+    <!-- API Guide content will be injected here -->
+    <div id="guide-p1-content"></div>
+  </div>
+  <div id="priceModalText" class="accordion-hidden-content">
+    <!-- Price Information content will be injected here -->
+    <div id="priceModalText-content"></div>
+  </div>
+  <div id="securityModalText" class="accordion-hidden-content">
+    <!-- Security Information content will be injected here -->
+    <div id="securityModalText-content"></div>
+  </div>
+  <div id="aboutModalText" class="accordion-hidden-content">
+    <!-- About content will be injected here -->
+    <div id="aboutModalText-content"></div>
+  </div>
+
+  <!-- Inline Script for API Key Handling and Consent -->
+  <script>
+    // Helper function to set a cookie
+    function setCookie(name, value, days) {
+      var expires = "";
+      if (days) {
+        var date = new Date();
+        date.setTime(date.getTime() + (days*24*60*60*1000));
+        expires = "; expires=" + date.toUTCString();
+      }
+      document.cookie = name + "=" + (value || "")  + expires + "; path=/";
+    }
+
+  document.addEventListener("DOMContentLoaded", function() {
+    const enterTranscriptionBtn = document.getElementById("enterTranscriptionBtn");
+    const apiKeyInput = document.getElementById("apiKeyInput");
+    if (enterTranscriptionBtn && apiKeyInput) {
+      enterTranscriptionBtn.addEventListener("click", () => {
+        const apiKey = apiKeyInput.value.trim();
+        // Consent cookie is still set
+        setCookie("user_consent", "accepted", 365);
+        // Store the API key as entered (valid or not)
+        sessionStorage.setItem("user_api_key", apiKey);
+        // Redirect to transcribe.html
+        window.location.href = "transcribe.html";
+      });
+    }
+  });
+</script>
+  
+  <!-- New Horizontal Accordion Script -->
+  <script>
+    document.querySelectorAll('.accordion-header').forEach(header => {
+      header.addEventListener('click', () => {
+        const contentContainer = document.querySelector('.accordion-content-container');
+        if (header.classList.contains('active')) {
+          header.classList.remove('active');
+          contentContainer.innerHTML = '';
+        } else {
+          document.querySelectorAll('.accordion-header.active').forEach(activeHeader => {
+            activeHeader.classList.remove('active');
+          });
+          header.classList.add('active');
+          const contentId = header.getAttribute('data-content-id');
+          const hiddenContent = document.getElementById(contentId);
+          if (hiddenContent) {
+            contentContainer.innerHTML = hiddenContent.innerHTML;
+          }
+        }
+      });
+    });
+  </script>
+  
+  <script type="module" src="./js/main-index.js"></script>
+
+  <script>
+    document.addEventListener("DOMContentLoaded", function() {
+      document.addEventListener("keydown", function(e) {
+        // Check if the pressed key is "Enter"
+        if (e.key === "Enter") {
+          // Optionally, you can check if the active element is not an input, textarea, or editable element
+          const btn = document.getElementById("enterTranscriptionBtn");
+          if (btn) {
+            btn.click();
+          }
+        }
+      });
+    });
+  </script>
+  
+</body>
+</html>
