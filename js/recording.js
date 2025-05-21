@@ -241,7 +241,10 @@ async function transcribeChunkViaSpeechmatics(wavBlob, chunkNum) {
   // ——— your transcription settings ———
   const config = {
     type: "transcription",
-    transcription_config: { language: "en" }
+    transcription_config: {
+      language: "auto",            // ← Norwegian
+      operating_point: "enhanced" // ← premium accuracy
+    }
   };
   form.append("config", JSON.stringify(config));
   form.append("data_file", wavBlob, `chunk_${chunkNum}.wav`);
