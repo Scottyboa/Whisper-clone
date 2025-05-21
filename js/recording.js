@@ -238,7 +238,7 @@ async function transcribeChunkDirectly(wavBlob, chunkNum) {
 
   try {
     const response = await fetch(
-      "https://api.deepgram.com/v1/listen?model=nova-2",
+      "https://api.deepgram.com/v1/listen?model=nova-2&language=no",
       {
         method: "POST",
         headers: {
