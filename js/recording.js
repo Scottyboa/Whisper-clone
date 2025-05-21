@@ -230,38 +230,47 @@ gainNode.gain.linearRampToValueAtTime(0, duration);
   return wavBlob;
 }
 
-// --- New: Transcribe Chunk Directly ---
-// Sends the WAV blob directly to OpenAI's Whisper API and returns the transcript.
-async function transcribeChunkDirectly(wavBlob, chunkNum) {
-    const dgKey = getAPIKey();   // re-use the same "user_api_key" from index.html
-  if (!dgKey) throw new Error("API key not available for transcription");
+// --- New: Transcribe Chunk via Speechmatics ---
+// Sends each WAV blob to Speechmatics, polls until complete, then returns the transcript.
+async function transcribeChunkViaSpeechmatics(wavBlob, chunkNum) {
+  const smKey = getAPIKey();
+  if (!smKey) throw new Error("API key not available for Speechmatics");
 
-  try {
-    const response = await fetch(
-      "https://api.deepgram.com/v1/listen?model=nova-2&language=no",
-      {
-        method: "POST",
-        headers: {
-          "Authorization": "Token " + dgKey,
-          "Content-Type": "audio/wav"
-        },
-        body: wavBlob
-      }
-    );
-
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`Deepgram API error: ${err}`);
-    }
-
-    const data = await response.json();
-    return data.results.channels[0].alternatives[0].transcript || "";
-  } catch (e) {
-    logError(`Error on chunk ${chunkNum}:`, e);
-    return `[Error transcribing chunk ${chunkNum}]`;
+  // 1) Create the job
+  const form = new FormData();
+  form.append("data_file", wavBlob, `chunk_${chunkNum}.wav`);
+  const createResp = await fetch("https://asr.api.speechmatics.com/v2/jobs/", {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + smKey },
+    body: form
+  });
+  if (!createResp.ok) {
+    throw new Error(`Speechmatics job creation failed: ${await createResp.text()}`);
   }
-}
+  const job = await createResp.json();
+  let status = job.status;
 
+  // 2) Poll until done
+  while (status === "queued" || status === "processing") {
+    await new Promise(r => setTimeout(r, 2000));
+    const statusResp = await fetch(
+      `https://asr.api.speechmatics.com/v2/jobs/${job.id}/`,
+      { headers: { "Authorization": "Bearer " + smKey } }
+    );
+    const stat = await statusResp.json();
+    status = stat.status;
+ }
+  if (status !== "done") {
+    throw new Error(`Speechmatics job ${job.id} failed with status ${status}`);
+  }
+
+  // 3) Download transcript as plain text
+  const txtResp = await fetch(
+    `https://asr.api.speechmatics.com/v2/jobs/${job.id}/transcript?format=txt`,
+    { headers: { "Authorization": "Bearer " + smKey } }
+  );
+  return await txtResp.text();
+}
 
 // --- Transcription Queue Processing ---
 // Adds a processed chunk to the queue and processes chunks sequentially.
@@ -277,7 +286,7 @@ async function processTranscriptionQueue() {
   while (transcriptionQueue.length > 0) {
     const { chunkNum, wavBlob } = transcriptionQueue.shift();
     logInfo(`Transcribing chunk ${chunkNum}...`);
-    const transcript = await transcribeChunkDirectly(wavBlob, chunkNum);
+    const transcript = await transcribeChunkViaSpeechmatics(wavBlob, chunkNum);
     transcriptChunks[chunkNum] = transcript;
     updateTranscriptionOutput();
   }
