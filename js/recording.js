@@ -253,8 +253,10 @@ async function transcribeChunkViaSpeechmatics(wavBlob, chunkNum) {
   if (!createResp.ok) {
     throw new Error(`Speechmatics job creation failed: ${await createResp.text()}`);
   }
-  const job = await createResp.json();
-  let status = job.status;
+  // normalize the create response (unwrap if it's { job: { … } })
+  const createJson = await createResp.json();
+  const job        = createJson.job || createJson;
+  let status       = job.status;
 
   // 2) Poll until done
   while (status === "queued" || status === "processing") {
@@ -263,8 +265,9 @@ async function transcribeChunkViaSpeechmatics(wavBlob, chunkNum) {
       `https://asr.api.speechmatics.com/v2/jobs/${job.id}/`,
       { headers: { "Authorization": "Bearer " + smKey } }
     );
-    const stat = await statusResp.json();
-    status = stat.status;
+    const statusJson = await statusResp.json();
+    // normalize the polling response
+    status = statusJson.job?.status || statusJson.status;
  }
   if (status !== "done") {
     throw new Error(`Speechmatics job ${job.id} failed with status ${status}`);
