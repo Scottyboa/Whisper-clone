@@ -242,7 +242,7 @@ async function transcribeChunkViaSpeechmatics(wavBlob, chunkNum) {
   const config = {
     type: "transcription",
     transcription_config: {
-      language: "auto",            // ← Norwegian
+      language: "no",            // ← Norwegian
       operating_point: "enhanced" // ← premium accuracy
     }
   };
