@@ -236,8 +236,14 @@ async function transcribeChunkViaSpeechmatics(wavBlob, chunkNum) {
   const smKey = getAPIKey();
   if (!smKey) throw new Error("API key not available for Speechmatics");
 
-  // 1) Create the job
+  // 1) Create the job (must include a JSON config)
   const form = new FormData();
+  // ——— your transcription settings ———
+  const config = {
+    type: "transcription",
+    transcription_config: { language: "en" }
+  };
+  form.append("config", JSON.stringify(config));
   form.append("data_file", wavBlob, `chunk_${chunkNum}.wav`);
   const createResp = await fetch("https://asr.api.speechmatics.com/v2/jobs/", {
     method: "POST",
