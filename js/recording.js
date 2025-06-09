@@ -245,7 +245,7 @@ async function transcribeChunkViaSpeechmatics(wavBlob, chunkNum) {
     transcription_config: {
     language: "en",          // Automatic Language ID
     operating_point: "standard"
-  };
+  }
   form.append("config", JSON.stringify(config));
   form.append("data_file", wavBlob, `chunk_${chunkNum}.wav`);
 
