@@ -242,9 +242,8 @@ async function transcribeChunkViaSpeechmatics(wavBlob, chunkNum) {
   const form = new FormData();
   const config = {
     type: "transcription",
-    transcription_config: {
-      language: "no",           
-      operating_point: "enhanced"
+    transcription_config: {           
+      operating_point: "standard"
     }
   };
   form.append("config", JSON.stringify(config));
