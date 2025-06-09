@@ -242,10 +242,14 @@ async function transcribeChunkViaSpeechmatics(wavBlob, chunkNum) {
   const form = new FormData();
   const config = {
     type: "transcription",
-    transcription_config: {   
-      language: "auto",
-      operating_point: "standard"
-    }
+    transcription_config: {
+    language: "auto",          // Automatic Language ID
+    operating_point: "standard"
+  },
+  language_identification_config: {
+    low_confidence_action: "use_default_language",
+    default_language: "no"     // falls back to Norwegian if detection is uncertain
+  }
   };
   form.append("config", JSON.stringify(config));
   form.append("data_file", wavBlob, `chunk_${chunkNum}.wav`);
