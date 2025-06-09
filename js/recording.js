@@ -1,7 +1,7 @@
 // recording.js
 // Updated recording module without encryption/HMAC mechanisms,
 // processing audio chunks using OfflineAudioContext,
-// and implementing a client‑side transcription queue that sends each processed chunk directly to OpenAI's Whisper API.
+// and implementing a client-side transcription queue that sends each processed chunk directly to Speechmatics (enhanced Norwegian).
 
 function hashString(str) {
   let hash = 0;
@@ -57,7 +57,7 @@ let recordingPaused = false;
 let audioFrames = []; // Buffer for audio frames
 
 // --- New Transcription Queue Variables ---
-let transcriptionQueue = [];  // Queue of { chunkNumber, blob }
+let transcriptionQueue = [];  // Queue of { chunkNumber, wavBlob }
 let isProcessingQueue = false;
 
 // --- Utility Functions ---
@@ -156,7 +156,7 @@ async function encryptFileBlob(blob) {
 
 // --- OfflineAudioContext Processing ---
 // This function takes interleaved PCM samples (Float32Array), the original sample rate, and the number of channels,
-// converts the audio to mono (averaging channels if needed), resamples to 16kHz, and applies 0.3s fade‑in/out.
+// converts the audio to mono (averaging channels if needed), resamples to 16kHz, and applies 0.3s fade-in/out.
 // It returns a 16-bit PCM WAV Blob.
 async function processAudioUsingOfflineContext(pcmFloat32, originalSampleRate, numChannels) {
   const targetSampleRate = 16000;
@@ -205,20 +205,17 @@ async function processAudioUsingOfflineContext(pcmFloat32, originalSampleRate, n
   const source = offlineCtx.createBufferSource();
   source.buffer = monoBuffer;
   
-// Modified code snippet to fix the negative time error:
-const gainNode = offlineCtx.createGain();
-const fadeDuration = 0.3;
-gainNode.gain.setValueAtTime(0, 0);
-gainNode.gain.linearRampToValueAtTime(1, fadeDuration);
+  const gainNode = offlineCtx.createGain();
+  const fadeDuration = 0.3;
+  gainNode.gain.setValueAtTime(0, 0);
+  gainNode.gain.linearRampToValueAtTime(1, fadeDuration);
 
-// Compute fade-out start time, ensuring it's non-negative
-const fadeOutStart = Math.max(0, duration - fadeDuration);
-if (duration < fadeDuration * 2) {
-  console.warn(`[Audio] Short chunk (${duration.toFixed(2)}s) — fade-in/out may be squished`);
-}
-
-gainNode.gain.setValueAtTime(1, fadeOutStart);
-gainNode.gain.linearRampToValueAtTime(0, duration);
+  const fadeOutStart = Math.max(0, duration - fadeDuration);
+  if (duration < fadeDuration * 2) {
+    console.warn(`[Audio] Short chunk (${duration.toFixed(2)}s) — fade-in/out may be squished`);
+  }
+  gainNode.gain.setValueAtTime(1, fadeOutStart);
+  gainNode.gain.linearRampToValueAtTime(0, duration);
   
   source.connect(gainNode).connect(offlineCtx.destination);
   source.start(0);
@@ -233,81 +230,122 @@ gainNode.gain.linearRampToValueAtTime(0, duration);
 // --- New: Transcribe Chunk via Speechmatics ---
 // Sends each WAV blob to Speechmatics, polls until complete, then returns the transcript.
 async function transcribeChunkViaSpeechmatics(wavBlob, chunkNum) {
+  logDebug(`transcribeChunkViaSpeechmatics: chunk ${chunkNum} entry`);
+  const totalStart = Date.now();
   const smKey = getAPIKey();
-  if (!smKey) throw new Error("API key not available for Speechmatics");
+  if (!smKey) {
+    logError(`No API key for Speechmatics when processing chunk ${chunkNum}`);
+    throw new Error("API key not available for Speechmatics");
+  }
 
-  // 1) Create the job (must include a JSON config)
+  // 1) Create the job
   const form = new FormData();
-  // ——— your transcription settings ———
   const config = {
     type: "transcription",
     transcription_config: {
-      language: "no",            // ← Norwegian
-      operating_point: "enhanced" // ← premium accuracy
+      language: "no",           
+      operating_point: "enhanced"
     }
   };
   form.append("config", JSON.stringify(config));
   form.append("data_file", wavBlob, `chunk_${chunkNum}.wav`);
+
+  logDebug(`transcribeChunkViaSpeechmatics: creating job for chunk ${chunkNum}`);
+  const createStart = Date.now();
   const createResp = await fetch("https://asr.api.speechmatics.com/v2/jobs/", {
     method: "POST",
     headers: { "Authorization": "Bearer " + smKey },
     body: form
   });
+  const createEnd = Date.now();
+  logDebug(`job creation request duration ${createEnd - createStart} ms`);
+
   if (!createResp.ok) {
-    throw new Error(`Speechmatics job creation failed: ${await createResp.text()}`);
+    const errText = await createResp.text();
+    logError(`Speechmatics create job failed [${createResp.status}]: ${errText}`);
+    throw new Error(`Speechmatics job creation failed: ${errText}`);
   }
-  // normalize the create response (unwrap if it's { job: { … } })
   const createJson = await createResp.json();
   const job        = createJson.job || createJson;
   let status       = job.status;
 
- // 2) Poll until done
- while (status !== "done") {
-   await new Promise(r => setTimeout(r, 2000));
-   const statusResp = await fetch(
-     `https://asr.api.speechmatics.com/v2/jobs/${job.id}/`,
-     { headers: { "Authorization": "Bearer " + smKey } }
-   );
-   const statusJson = await statusResp.json();
-   // normalize the response whether it's { job: {...} } or { jobs: [ {...} ] }
-  const detail = statusJson.job
-                || (Array.isArray(statusJson.jobs) && statusJson.jobs[0])
-                || statusJson;
-   status = detail.status;
- }
- // if you want to detect rejected/deleted/etc, check here; by default we only accept "done"
- if (status !== "done") {
-   throw new Error(`Speechmatics job ${job.id} failed with status ${status}`);
- }
+  // 2) Poll until done
+  logDebug(`transcribeChunkViaSpeechmatics: polling job ${job.id} for chunk ${chunkNum}`);
+  const pollStart = Date.now();
+  let pollCount = 0;
+  while (status !== "done") {
+    await new Promise(r => setTimeout(r, 1000));
+    pollCount++;
+    const statusResp = await fetch(
+      `https://asr.api.speechmatics.com/v2/jobs/${job.id}/`,
+      { headers: { "Authorization": "Bearer " + smKey } }
+    );
+    const statusJson = await statusResp.json();
+    const detail = statusJson.job
+                  || (Array.isArray(statusJson.jobs) && statusJson.jobs[0])
+                  || statusJson;
+    status = detail.status;
+  }
+  const pollEnd = Date.now();
+  logDebug(`polling done for job ${job.id}, attempts=${pollCount}, duration ${pollEnd - pollStart} ms`);
 
-  // 3) Download transcript as plain text
+  if (status !== "done") {
+    throw new Error(`Speechmatics job ${job.id} failed with status ${status}`);
+  }
+
+  // 3) Download transcript
+  logDebug(`transcribeChunkViaSpeechmatics: downloading transcript for job ${job.id}`);
+  const downloadStart = Date.now();
   const txtResp = await fetch(
     `https://asr.api.speechmatics.com/v2/jobs/${job.id}/transcript?format=txt`,
     { headers: { "Authorization": "Bearer " + smKey } }
   );
-  return await txtResp.text();
+  const downloadEnd = Date.now();
+  logDebug(`download duration ${downloadEnd - downloadStart} ms`);
+
+  if (!txtResp.ok) {
+    const errText = await txtResp.text();
+    logError(`Transcript download failed [${txtResp.status}]: ${errText}`);
+    throw new Error(`Failed fetching transcript: ${errText}`);
+  }
+  const text = await txtResp.text();
+  const totalEnd = Date.now();
+  logDebug(`transcribeChunkViaSpeechmatics: chunk ${chunkNum} total duration ${totalEnd - totalStart} ms`);
+  return text;
 }
 
 // --- Transcription Queue Processing ---
+async function processTranscriptionQueue() {
+  logDebug("processTranscriptionQueue: entry", { queueLength: transcriptionQueue.length });
+  if (isProcessingQueue) {
+    logDebug("processTranscriptionQueue: already running, exiting");
+    return;
+  }
+  isProcessingQueue = true;
+
+  while (transcriptionQueue.length > 0) {
+    const { chunkNum, wavBlob } = transcriptionQueue.shift();
+    logInfo(`Starting transcription chunk ${chunkNum}, remaining in queue: ${transcriptionQueue.length}`);
+    try {
+      const transcript = await transcribeChunkViaSpeechmatics(wavBlob, chunkNum);
+      transcriptChunks[chunkNum] = transcript;
+      updateTranscriptionOutput();
+      logInfo(`Completed transcription chunk ${chunkNum}`);
+    } catch (err) {
+      logError(`Failed transcription chunk ${chunkNum}:`, err);
+      transcriptChunks[chunkNum] = `[Error on chunk ${chunkNum}]`;
+      updateTranscriptionOutput();
+    }
+  }
+
+  isProcessingQueue = false;
+  logDebug("processTranscriptionQueue: exit");
+}
+
 // Adds a processed chunk to the queue and processes chunks sequentially.
 function enqueueTranscription(wavBlob, chunkNum) {
   transcriptionQueue.push({ chunkNum, wavBlob });
   processTranscriptionQueue();
-}
-
-async function processTranscriptionQueue() {
-  if (isProcessingQueue) return;
-  isProcessingQueue = true;
-  
-  while (transcriptionQueue.length > 0) {
-    const { chunkNum, wavBlob } = transcriptionQueue.shift();
-    logInfo(`Transcribing chunk ${chunkNum}...`);
-    const transcript = await transcribeChunkViaSpeechmatics(wavBlob, chunkNum);
-    transcriptChunks[chunkNum] = transcript;
-    updateTranscriptionOutput();
-  }
-  
-  isProcessingQueue = false;
 }
 
 // --- Removed: Polling functions (pollChunkTranscript) since we now transcribe directly ---
@@ -318,15 +356,18 @@ async function processAudioChunkInternal(force = false) {
     logDebug("No audio frames to process.");
     return;
   }
-  // Mark that we have processed at least one frame set.
   processedAnyAudioFrames = true;
-  
+
   logInfo(`Processing ${audioFrames.length} audio frames for chunk ${chunkNumber}.`);
+  logDebug(`processAudioChunkInternal: start chunk ${chunkNumber}`);
+  const internalStart = Date.now();
+
   const framesToProcess = audioFrames;
   audioFrames = []; // Clear the buffer
   const sampleRate = framesToProcess[0].sampleRate;
   const numChannels = framesToProcess[0].numberOfChannels;
   let pcmDataArray = [];
+
   for (const frame of framesToProcess) {
     const numFrames = frame.numberOfFrames;
     if (numChannels === 1) {
@@ -350,6 +391,7 @@ async function processAudioChunkInternal(force = false) {
     }
     frame.close();
   }
+
   const totalLength = pcmDataArray.reduce((sum, arr) => sum + arr.length, 0);
   const pcmFloat32 = new Float32Array(totalLength);
   let offset = 0;
@@ -357,14 +399,20 @@ async function processAudioChunkInternal(force = false) {
     pcmFloat32.set(arr, offset);
     offset += arr.length;
   }
-  
-  // Process the raw audio samples using OfflineAudioContext:
-  // Convert to mono, resample to 16kHz, and apply 0.3s fade-in/out.
+
+  logDebug(`processAudioChunkInternal: calling OfflineAudioContext for chunk ${chunkNumber}`);
+  const procStart = Date.now();
   const wavBlob = await processAudioUsingOfflineContext(pcmFloat32, sampleRate, numChannels);
-  
-  // Instead of uploading to a backend, enqueue this processed chunk for direct transcription.
+  const procEnd = Date.now();
+  logDebug(`processAudioUsingOfflineContext: chunk ${chunkNumber} duration ${procEnd - procStart} ms`);
+
+  const enqueueStart = Date.now();
   enqueueTranscription(wavBlob, chunkNumber);
-  
+  const enqueueEnd = Date.now();
+  logDebug(`enqueueTranscription: chunk ${chunkNumber} queue add duration ${enqueueEnd - enqueueStart} ms`);
+
+  const internalEnd = Date.now();
+  logDebug(`processAudioChunkInternal: end chunk ${chunkNumber}, total duration ${internalEnd - internalStart} ms`);
   chunkNumber++;
 }
 
@@ -401,7 +449,6 @@ function finalizeStop() {
   if (stopButton) stopButton.disabled = true;
   if (pauseResumeButton) pauseResumeButton.disabled = true;
   logInfo("Recording stopped by user. Finalizing transcription.");
-  // Optionally, you could wait here for the queue to empty before declaring completion.
 }
 
 function updateTranscriptionOutput() {
@@ -459,19 +506,29 @@ function encodeWAV(samples, sampleRate, numChannels) {
 }
 
 function scheduleChunk() {
+  logDebug("scheduleChunk: checking conditions", {
+    manualStop,
+    recordingPaused,
+    elapsed: Date.now() - chunkStartTime,
+    timeSinceLast: Date.now() - lastFrameTime
+  });
   if (manualStop || recordingPaused) {
-    logDebug("Scheduler suspended due to manual stop or pause.");
+    logInfo("scheduleChunk: suspended (stop or pause)");
     return;
   }
   const elapsed = Date.now() - chunkStartTime;
   const timeSinceLast = Date.now() - lastFrameTime;
-  if (elapsed >= MAX_CHUNK_DURATION || (elapsed >= MIN_CHUNK_DURATION && timeSinceLast >= watchdogThreshold)) {
-    logInfo("Scheduling condition met; processing chunk.");
+  if (
+    elapsed >= MAX_CHUNK_DURATION ||
+    (elapsed >= MIN_CHUNK_DURATION && timeSinceLast >= watchdogThreshold)
+  ) {
+    logInfo(`scheduleChunk: condition met (elapsed=${elapsed} ms, sinceLast=${timeSinceLast} ms); processing chunk ${chunkNumber}`);
     safeProcessAudioChunk();
     chunkStartTime = Date.now();
     scheduleChunk();
   } else {
     chunkTimeoutId = setTimeout(scheduleChunk, 500);
+    logDebug("scheduleChunk: next check in 500ms");
   }
 }
 
@@ -489,7 +546,6 @@ function resetRecordingState() {
   recordingPaused = false;
   groupId = Date.now().toString();
   chunkNumber = 1;
-  // Reset accumulated recording time for a new session
   accumulatedRecordingTime = 0;
 }
 
@@ -500,35 +556,32 @@ function initRecording() {
   if (!startButton || !stopButton || !pauseResumeButton) return;
 
   startButton.addEventListener("click", async () => {
-  // Retrieve the API key before starting.
-  const dgKey = getAPIKey();
-  if (!dgKey) {
-    alert("Please enter a valid API key before starting the recording.");
-    return;
-  }
-  resetRecordingState();
-   
+    const dgKey = getAPIKey();
+    if (!dgKey) {
+      alert("Please enter a valid API key before starting the recording.");
+      return;
+    }
+    resetRecordingState();
+
     const transcriptionElem = document.getElementById("transcription");
     if (transcriptionElem) transcriptionElem.value = "";
-    
+
     updateStatusMessage("Recording...", "green");
     logInfo("Recording started.");
     try {
       mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-// Clear any existing recording timer interval
-if (recordingTimerInterval) {
-  clearInterval(recordingTimerInterval);
-  recordingTimerInterval = null;
-}
+      if (recordingTimerInterval) {
+        clearInterval(recordingTimerInterval);
+        recordingTimerInterval = null;
+      }
 
-recordingStartTime = Date.now();
-recordingTimerInterval = setInterval(updateRecordingTimer, 1000);
+      recordingStartTime = Date.now();
+      recordingTimerInterval = setInterval(updateRecordingTimer, 1000);
 
-      
       const track = mediaStream.getAudioTracks()[0];
       const processor = new MediaStreamTrackProcessor({ track: track });
       audioReader = processor.readable.getReader();
-      
+
       function readLoop() {
         audioReader.read().then(({ done, value }) => {
           if (done) {
@@ -555,173 +608,137 @@ recordingTimerInterval = setInterval(updateRecordingTimer, 1000);
     }
   });
 
-pauseResumeButton.addEventListener("click", async () => {
-  // If there is no mediaStream or we're currently paused, then we want to RESUME recording.
-  if (!mediaStream || recordingPaused) {
-    try {
-      // RESUME LOGIC: Request microphone access again
-      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const newTrack = mediaStream.getAudioTracks()[0];
-      const processor = new MediaStreamTrackProcessor({ track: newTrack });
-      audioReader = processor.readable.getReader();
+  pauseResumeButton.addEventListener("click", async () => {
+    if (!mediaStream || recordingPaused) {
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const newTrack = mediaStream.getAudioTracks()[0];
+        const processor = new MediaStreamTrackProcessor({ track: newTrack });
+        audioReader = processor.readable.getReader();
 
-      // Start the read loop for audio frames
-      function readLoop() {
-        audioReader.read().then(({ done, value }) => {
-          if (done) {
-            logInfo("Audio track reading complete.");
-            return;
-          }
-          lastFrameTime = Date.now();
-          audioFrames.push(value);
-          readLoop();
-        }).catch(err => {
-          logError("Error reading audio frames", err);
-        });
+        function readLoop() {
+          audioReader.read().then(({ done, value }) => {
+            if (done) {
+              logInfo("Audio track reading complete.");
+              return;
+            }
+            lastFrameTime = Date.now();
+            audioFrames.push(value);
+            readLoop();
+          }).catch(err => {
+            logError("Error reading audio frames", err);
+          });
+        }
+        readLoop();
+
+        recordingPaused = false;
+        if (recordingTimerInterval) {
+          clearInterval(recordingTimerInterval);
+          recordingTimerInterval = null;
+        }
+
+        recordingStartTime = Date.now();
+        lastFrameTime = Date.now();
+        recordingTimerInterval = setInterval(updateRecordingTimer, 1000);
+
+        pauseResumeButton.innerText = "Pause Recording";
+        updateStatusMessage("Recording...", "green");
+        chunkStartTime = Date.now();
+        scheduleChunk();
+        logInfo("Recording resumed.");
+      } catch (error) {
+        updateStatusMessage("Error resuming recording: " + error, "red");
+        logError("Error resuming microphone on resume", error);
       }
-      readLoop();
-
-      // Reset timing variables for the resumed segment
-      recordingPaused = false;
-// Clear any existing recording timer interval
-if (recordingTimerInterval) {
-  clearInterval(recordingTimerInterval);
-  recordingTimerInterval = null;
-}
-
-recordingStartTime = Date.now();
-lastFrameTime = Date.now();
-recordingTimerInterval = setInterval(updateRecordingTimer, 1000);
-
-      
-      // Update UI to reflect resumed state
-      pauseResumeButton.innerText = "Pause Recording";
-      updateStatusMessage("Recording...", "green");
-      chunkStartTime = Date.now();
-      scheduleChunk();
-      logInfo("Recording resumed.");
-
-      // Leave startButton and stopButton states unchanged; startButton remains disabled.
-    } catch (error) {
-      updateStatusMessage("Error resuming recording: " + error, "red");
-      logError("Error resuming microphone on resume", error);
-    }
-  } else {
-    // PAUSE LOGIC: Process pending audio, then stop the microphone so that the red dot goes away.
-    await safeProcessAudioChunk(false);
-    accumulatedRecordingTime += Date.now() - recordingStartTime;
-    
-    // Fully stop the media stream to release the microphone
-    stopMicrophone();
-    
-    recordingPaused = true;
-    clearInterval(recordingTimerInterval);
-    clearTimeout(chunkTimeoutId);
-    
-    // Update UI to reflect paused state:
-    pauseResumeButton.innerText = "Resume Recording";
-    updateStatusMessage("Recording paused", "orange");
-    logInfo("Recording paused; current chunk processed and media stream stopped.");
-
-    // Ensure that the pause/resume button stays enabled while startButton remains disabled and stopButton remains enabled.
-    const startButton = document.getElementById("startButton");
-    const stopButton = document.getElementById("stopButton");
-    if (startButton) startButton.disabled = true;         // Remain disabled
-    if (stopButton) stopButton.disabled = false;            // Remain enabled
-    pauseResumeButton.disabled = false;                    // Allow user to resume
-  }
-});
-
-stopButton.addEventListener("click", async () => {
-  updateStatusMessage("Finishing transcription...", "blue");
-  manualStop = true;
-  clearTimeout(chunkTimeoutId);
-  clearInterval(recordingTimerInterval);
-  stopMicrophone();
-  chunkStartTime = 0;
-  lastFrameTime = 0;
-  await new Promise(resolve => setTimeout(resolve, 200));
-
-  // NEW: If the recording is paused, finalize immediately.
-  if (recordingPaused) {
-    finalChunkProcessed = true;
-    const compTimerElem = document.getElementById("transcribeTimer");
-    if (compTimerElem) {
-      compTimerElem.innerText = "Completion Timer: 0 sec";
-    }
-    updateStatusMessage("Transcription finished!", "green");
-    const startButton = document.getElementById("startButton");
-    if (startButton) startButton.disabled = false;
-    stopButton.disabled = true;
-    const pauseResumeButton = document.getElementById("pauseResumeButton");
-    if (pauseResumeButton) pauseResumeButton.disabled = true;
-    logInfo("Recording paused and stop pressed; transcription complete without extra processing.");
-    return;
-  }
-
-  // Continue with the existing logic if not paused:
-  if (audioFrames.length === 0 && !processedAnyAudioFrames) {
-    resetRecordingState();
-    if (completionTimerInterval) {
-      clearInterval(completionTimerInterval);
-      completionTimerInterval = null;
-    }
-    const compTimerElem = document.getElementById("transcribeTimer");
-    if (compTimerElem) {
-      compTimerElem.innerText = "Completion Timer: 0 sec";
-    }
-    const recTimerElem = document.getElementById("recordTimer");
-    if (recTimerElem) {
-      recTimerElem.innerText = "Recording Timer: 0 sec";
-    }
-    updateStatusMessage("Recording reset. Ready to start.", "green");
-    const startButton = document.getElementById("startButton");
-    if (startButton) startButton.disabled = false;
-    stopButton.disabled = true;
-    const pauseResumeButton = document.getElementById("pauseResumeButton");
-    if (pauseResumeButton) pauseResumeButton.disabled = true;
-    logInfo("No audio frames captured. Full reset performed.");
-    processedAnyAudioFrames = false;
-    return;
-  } else {
-    if (chunkProcessingLock) {
-      pendingStop = true;
-      logDebug("Chunk processing locked at stop; setting pendingStop.");
     } else {
-      await safeProcessAudioChunk(true);
-      if (!processedAnyAudioFrames) {
-        resetRecordingState();
-        if (completionTimerInterval) {
-          clearInterval(completionTimerInterval);
-          completionTimerInterval = null;
-        }
-        const compTimerElem = document.getElementById("transcribeTimer");
-        if (compTimerElem) {
-          compTimerElem.innerText = "Completion Timer: 0 sec";
-        }
-        const recTimerElem = document.getElementById("recordTimer");
-        if (recTimerElem) {
-          recTimerElem.innerText = "Recording Timer: 0 sec";
-        }
-        updateStatusMessage("Recording reset. Ready to start.", "green");
-        const startButton = document.getElementById("startButton");
-        if (startButton) startButton.disabled = false;
-        stopButton.disabled = true;
-        const pauseResumeButton = document.getElementById("pauseResumeButton");
-        if (pauseResumeButton) pauseResumeButton.disabled = true;
-        logInfo("No audio frames processed after safeProcessAudioChunk. Full reset performed.");
-        processedAnyAudioFrames = false;
-        return;
+      await safeProcessAudioChunk(false);
+      accumulatedRecordingTime += Date.now() - recordingStartTime;
+      stopMicrophone();
+      recordingPaused = true;
+      clearInterval(recordingTimerInterval);
+      clearTimeout(chunkTimeoutId);
+      pauseResumeButton.innerText = "Resume Recording";
+      updateStatusMessage("Recording paused", "orange");
+      logInfo("Recording paused; current chunk processed and media stream stopped.");
+      const startButton = document.getElementById("startButton");
+      const stopButton = document.getElementById("stopButton");
+      if (startButton) startButton.disabled = true;
+      if (stopButton) stopButton.disabled = false;
+      pauseResumeButton.disabled = false;
+    }
+  });
+
+  stopButton.addEventListener("click", async () => {
+    updateStatusMessage("Finishing transcription...", "blue");
+    manualStop = true;
+    clearTimeout(chunkTimeoutId);
+    clearInterval(recordingTimerInterval);
+    stopMicrophone();
+    chunkStartTime = 0;
+    lastFrameTime = 0;
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    if (recordingPaused) {
+      finalChunkProcessed = true;
+      const compTimerElem = document.getElementById("transcribeTimer");
+      if (compTimerElem) {
+        compTimerElem.innerText = "Completion Timer: 0 sec";
+      }
+      updateStatusMessage("Transcription finished!", "green");
+      const startButton = document.getElementById("startButton");
+      if (startButton) startButton.disabled = false;
+      stopButton.disabled = true;
+      const pauseResumeButton = document.getElementById("pauseResumeButton");
+      if (pauseResumeButton) pauseResumeButton.disabled = true;
+      logInfo("Recording paused and stop pressed; transcription complete without extra processing.");
+      return;
+    }
+
+    if (audioFrames.length === 0 && !processedAnyAudioFrames) {
+      resetRecordingState();
+      if (completionTimerInterval) clearInterval(completionTimerInterval);
+      const compTimerElem = document.getElementById("transcribeTimer");
+      if (compTimerElem) compTimerElem.innerText = "Completion Timer: 0 sec";
+      const recTimerElem = document.getElementById("recordTimer");
+      if (recTimerElem) recTimerElem.innerText = "Recording Timer: 0 sec";
+      updateStatusMessage("Recording reset. Ready to start.", "green");
+      const startButton = document.getElementById("startButton");
+      if (startButton) startButton.disabled = false;
+      stopButton.disabled = true;
+      const pauseResumeButton = document.getElementById("pauseResumeButton");
+      if (pauseResumeButton) pauseResumeButton.disabled = true;
+      processedAnyAudioFrames = false;
+      return;
+    } else {
+      if (chunkProcessingLock) {
+        pendingStop = true;
+        logDebug("Chunk processing locked at stop; setting pendingStop.");
       } else {
-        finalChunkProcessed = true;
-        finalizeStop();
-        logInfo("Stop button processed; final chunk handled.");
+        await safeProcessAudioChunk(true);
+        if (!processedAnyAudioFrames) {
+          resetRecordingState();
+          if (completionTimerInterval) clearInterval(completionTimerInterval);
+          const compTimerElem = document.getElementById("transcribeTimer");
+          if (compTimerElem) compTimerElem.innerText = "Completion Timer: 0 sec";
+          const recTimerElem = document.getElementById("recordTimer");
+          if (recTimerElem) recTimerElem.innerText = "Recording Timer: 0 sec";
+          updateStatusMessage("Recording reset. Ready to start.", "green");
+          const startButton = document.getElementById("startButton");
+          if (startButton) startButton.disabled = false;
+          stopButton.disabled = true;
+          const pauseResumeButton = document.getElementById("pauseResumeButton");
+          if (pauseResumeButton) pauseResumeButton.disabled = true;
+          logInfo("No audio frames processed after safeProcessAudioChunk. Full reset performed.");
+          processedAnyAudioFrames = false;
+          return;
+        } else {
+          finalChunkProcessed = true;
+          finalizeStop();
+          logInfo("Stop button processed; final chunk handled.");
+        }
       }
     }
-  }
-});
-
+  });
 }
 
 export { initRecording };
-
