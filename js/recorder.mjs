@@ -1,0 +1,143 @@
+import { createDrainableSonioxVAD } from './soniox-vad-drain.mjs';
+import { VAD_RULES, SAMPLE_RATE, toPCM, wavBlob } from './audio.mjs';
+
+export class Recorder {
+  constructor({ onChange = () => {}, now = Date.now, createVAD } = {}) {
+    this.onChange = onChange; this.now = now;
+    this.createVAD = createVAD || (options => this.makeVAD(options));
+    this.state = 'idle'; this.parts = []; this.samples = 0;
+    this.startedAt = null; this.context = null; this.mic = null;
+    this.acceptingAudio = false; this.disposed = false;
+    this.queue = Promise.resolve();
+  }
+
+  // Called synchronously by Start/Link, while the user's click can unlock audio.
+  unlock() {
+    if (this.disposed) throw new Error('This page is closing.');
+    if (!this.context || this.context.state === 'closed') this.context = new AudioContext();
+    return this.context.resume();
+  }
+
+  async makeVAD(options) {
+    if (!globalThis.vad?.AudioNodeVAD) throw new Error('Audio model could not be loaded. Reload the page.');
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone access requires HTTPS.');
+    if (!this.context) throw new Error('Click Link or Start on this computer first.');
+    await this.context.resume();
+    if (this.context.state !== 'running') throw new Error('Click Start on this computer to enable audio.');
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: {
+      channelCount: 1, echoCancellation: true, autoGainControl: true, noiseSuppression: true,
+    } });
+    let source, node;
+    const context = this.context;
+    try {
+      if (this.disposed) throw new Error('This page is closing.');
+      // Use the same pinned AudioNodeVAD and Azure drain adapter. Reuse the
+      // user-unlocked context so later email commands can start capture.
+      const factory = { new: async guarded => {
+        source = context.createMediaStreamSource(stream);
+        node = await vad.AudioNodeVAD.new(context, guarded);
+        node.receive(source);
+        return {
+          stream, audioContext: context, audioNodeVAD: node, sourceNode: source,
+          start: () => node.start(), pause: () => node.pause(),
+          destroy: () => { source.disconnect(); node.destroy(); stream.getTracks().forEach(track => track.stop()); },
+        };
+      } };
+      const mic = await createDrainableSonioxVAD(factory, {
+        ...options, stream,
+        baseAssetPath: new URL('../vendor/vad/', import.meta.url).href,
+        onnxWASMBasePath: new URL('../vendor/ort/', import.meta.url).href,
+        ortConfig: ort => { ort.env.wasm.numThreads = 1; },
+      });
+      if (this.disposed) { mic.destroy(); throw new Error('This page is closing.'); }
+      mic.start();
+      if (!stream.getAudioTracks().some(track => track.readyState === 'live')) {
+        mic.destroy(); throw new Error('Microphone is unavailable.');
+      }
+      return mic;
+    } catch (error) {
+      stream.getTracks().forEach(track => track.stop());
+      try { source?.disconnect(); node?.destroy(); } catch {}
+      throw error;
+    }
+  }
+
+  setState(value) { this.state = value; this.onChange(this); }
+  command(action) {
+    const job = this.queue.then(() => this.perform(action));
+    this.queue = job.catch(() => {});
+    return job;
+  }
+  async beginCapture() {
+    this.acceptingAudio = true;
+    this.mic = await this.createVAD({
+      ...VAD_RULES,
+      onSpeechStart: () => {}, onVADMisfire: () => {},
+      onFrameProcessed: () => {},
+      onSpeechEnd: audio => {
+        if (!this.acceptingAudio || this.disposed || !audio.length) return;
+        this.parts.push(toPCM(audio)); this.samples += audio.length;
+      },
+    });
+  }
+  async secureTail() {
+    if (!this.mic) return;
+    // Continue accepting the final speech callback until capture and inference
+    // are acknowledged. Do not discard the tail on Pause or Stop.
+    if (!this.mic.drainAndPause) throw new Error('Safe audio drain is unavailable.');
+    await this.mic.drainAndPause();
+    this.acceptingAudio = false;
+    await this.mic.destroy();
+    this.mic = null;
+  }
+  async perform(action) {
+    if (this.disposed) throw new Error('This page is closing.');
+    if (action === 'start') {
+      if (this.state !== 'idle') return;
+      this.parts = []; this.samples = 0; this.startedAt = null;
+      this.setState('starting');
+      try {
+        await this.beginCapture();
+        this.startedAt = this.now(); this.setState('recording');
+      } catch (error) {
+        this.acceptingAudio = false; this.setState('idle'); throw error;
+      }
+      return;
+    }
+    if (action === 'pause') {
+      if (this.state !== 'recording') return;
+      this.setState('pausing');
+      try { await this.secureTail(); this.setState('paused'); }
+      catch (error) { this.setState('error'); throw error; }
+      return;
+    }
+    if (action === 'resume') {
+      if (this.state !== 'paused') return;
+      this.setState('resuming');
+      try { await this.beginCapture(); this.setState('recording'); }
+      catch (error) { this.acceptingAudio = false; this.setState('paused'); throw error; }
+      return;
+    }
+    if (action === 'stop') {
+      if (!['recording', 'paused', 'error'].includes(this.state)) return;
+      const endedAt = this.now();
+      this.setState('stopping');
+      try { await this.secureTail(); }
+      catch (error) { this.setState('error'); throw error; }
+      const entry = {
+        id: crypto.randomUUID(), startedAt: this.startedAt, endedAt,
+        elapsedMs: Math.max(0, endedAt - this.startedAt), audioMs: this.samples / SAMPLE_RATE * 1000,
+      };
+      const blob = this.samples ? wavBlob(this.parts) : null;
+      this.parts = []; this.samples = 0; this.startedAt = null;
+      this.setState('idle');
+      return { entry, blob };
+    }
+  }
+  dispose() {
+    this.disposed = true; this.acceptingAudio = false; this.parts = [];
+    this.mic?.stream?.getTracks().forEach(track => track.stop());
+    try { this.mic?.destroy(); } catch {}
+    this.context?.close().catch(() => {});
+  }
+}

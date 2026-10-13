@@ -1,0 +1,76 @@
+import { CONFIG } from './config.mjs';
+
+export function renderTranscript(result, speakers) {
+  const tokens = Array.isArray(result.tokens) ? result.tokens : [];
+  if (!speakers || !tokens.some(token => token.speaker != null)) {
+    return (result.text || tokens.map(token => token.text || '').join('')).trim();
+  }
+  const lines = []; let current = null, text = '';
+  const flush = () => {
+    if (text.trim()) lines.push(`${current == null ? '' : `Speaker ${current}: `}${text.trim()}`);
+    text = '';
+  };
+  for (const token of tokens) {
+    const next = token.speaker ?? current;
+    if (next !== current && text.trim()) flush();
+    current = next; text += token.text || '';
+  }
+  flush(); return lines.join('\n\n');
+}
+
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+export async function transcribeFile(file, apiKey, speakers, onStatus = () => {}) {
+  let fileId, transcriptionId;
+  const request = async (path, options = {}) => {
+    const response = await fetch(`${CONFIG.sonioxBase}/${path}`, {
+      ...options, cache: 'no-store', signal: AbortSignal.timeout(120000),
+      headers: { Authorization: `Bearer ${apiKey}`, ...options.headers },
+    });
+    if (!response.ok) {
+      const error = new Error(`Soniox request failed (${response.status}).`);
+      error.status = response.status; throw error;
+    }
+    return response;
+  };
+  const cleanup = async path => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { await request(path, { method: 'DELETE' }); return true; }
+      catch (error) { if (error.status === 404) return true; }
+      if (attempt < 2) await wait(1000 * (attempt + 1));
+    }
+    return false;
+  };
+  let cleanupOK = true;
+  try {
+    onStatus('Uploading…');
+    const form = new FormData(); form.append('file', file, file.name);
+    const upload = await (await request('files', { method: 'POST', body: form })).json();
+    fileId = upload.id;
+    if (!fileId) throw new Error('Soniox did not return a file ID.');
+    const job = await (await request('transcriptions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+      model: CONFIG.sonioxModel, file_id: fileId,
+      enable_speaker_diarization: !!speakers, enable_language_identification: true,
+    }) })).json();
+    transcriptionId = job.id;
+    if (!transcriptionId) throw new Error('Soniox did not return a transcription ID.');
+    onStatus('Transcribing…');
+    const deadline = Date.now() + 60 * 60 * 1000;
+    while (true) {
+      const state = await (await request(`transcriptions/${encodeURIComponent(transcriptionId)}`)).json();
+      if (state.status === 'completed') break;
+      if (state.status === 'error') throw new Error('Soniox could not transcribe this file.');
+      if (Date.now() > deadline) throw new Error('Transcription timed out.');
+      await wait(2000);
+    }
+    const result = await (await request(`transcriptions/${encodeURIComponent(transcriptionId)}/transcript`)).json();
+    const text = renderTranscript(result, speakers);
+    // Display the result before deleting provider resources.
+    onStatus('Cleaning up…', text);
+    return text;
+  } finally {
+    if (transcriptionId) cleanupOK = await cleanup(`transcriptions/${encodeURIComponent(transcriptionId)}`) && cleanupOK;
+    if (fileId) cleanupOK = await cleanup(`files/${encodeURIComponent(fileId)}`) && cleanupOK;
+    if (!cleanupOK) onStatus('Provider cleanup failed. Remove this upload from your Soniox account.', undefined, true);
+    apiKey = '';
+  }
+}
