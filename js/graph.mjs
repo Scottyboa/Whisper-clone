@@ -25,7 +25,9 @@ export function parseCommand(message, ownAddresses, linkedAt, now = Date.now()) 
 export class MailControl {
   constructor({ onStatus = () => {}, onCommand, auth, fetcher = fetch, now = Date.now } = {}) {
     this.onStatus = onStatus; this.onCommand = onCommand;
-    this.auth = auth; this.fetcher = fetcher; this.now = now;
+    // Native Window.fetch rejects a MailControl receiver ("Illegal invocation").
+    // Keep the browser receiver when storing it as an instance method.
+    this.auth = auth; this.fetcher = fetcher.bind(globalThis); this.now = now;
     this.account = null; this.addresses = new Set(); this.seen = new Map();
     this.active = false; this.generation = 0; this.timer = null;
     this.abort = null; this.releaseLock = null; this.clientPromise = null;

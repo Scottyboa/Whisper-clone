@@ -1,6 +1,6 @@
 import { Recorder } from './recorder.mjs';
 import { clock, duration, dateStamp, timeStamp, recordingName, download } from './audio.mjs';
-import { MailControl } from './graph.mjs';
+import { MailControl } from './graph.mjs?v=20261013-link1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';
 import { transcribeFile } from './soniox.mjs';
 
