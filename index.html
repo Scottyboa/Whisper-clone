@@ -6,11 +6,12 @@
   <meta name="referrer" content="no-referrer">
   <title>Whisper-clone</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="style.css?v=20261014-demo1">
+  <link rel="stylesheet" href="style.css?v=20261014-drive1">
   <script defer src="vendor/ort/ort.min.js"></script>
   <script defer src="vendor/vad/bundle.min.js"></script>
   <script defer src="vendor/msal/msal-browser.min.js"></script>
-  <script type="module" src="js/app.mjs?v=20261014-demo1"></script>
+  <script defer src="vendor/jszip/jszip.min.js"></script>
+  <script type="module" src="js/app.mjs?v=20261014-drive1"></script>
 </head>
 <body>
   <div class="privacy-controls">
@@ -103,10 +104,16 @@
           <button id="upload" type="button">Upload File</button>
           <input id="file" type="file" accept="audio/*,.wav,.mp3,.m4a,.webm,.ogg,.flac,.aac,.mp4" hidden>
           <span id="fileName"></span>
-          <button id="transcribe" class="primary" type="button" disabled>Transcribe</button>
+          <div class="transcript-actions">
+            <button id="transcribe" class="primary" type="button" disabled>Transcribe</button>
+            <button id="exportDrive" type="button" disabled>EX.Drive</button>
+            <button id="importDrive" type="button">Imp. Drive</button>
+            <button id="clearDrive" type="button">Clear Drive</button>
+          </div>
         </div>
         <textarea id="transcript" aria-label="Transcript" spellcheck="false"></textarea>
         <div id="message" role="status" aria-live="polite"></div>
+        <div id="driveMessage" role="status" aria-live="polite"></div>
       </section>
     </main>
   </div>

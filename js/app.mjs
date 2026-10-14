@@ -4,6 +4,7 @@ import { MailControl } from './graph.mjs?v=20261013-link1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';
 import { transcribeFile } from './soniox.mjs';
 import { PrivacyView } from './privacy-view.mjs?v=20261014-demo1';
+import { TranscriptDrive } from './transcript-drive.mjs?v=20261014-drive1';
 
 // MSAL's parent window consumes its popup response. Do not start a second
 // recorder, alter the URL, or consume the authorization code in this popup.
@@ -15,6 +16,7 @@ function bootstrap() {
   const KEY = 'whisper-clone.soniox-key', HISTORY = 'whisper-clone.recordings';
   let apiKey = '', history = [], file = null, transcribing = false, linking = false;
   let wakeLock = null, wakeGeneration = 0, importBusy = false;
+  let driveBusy = false;
   const message = (text = '', error = false) => { $('message').textContent = text; $('message').classList.toggle('error', error); };
   try {
     apiKey = sessionStorage.getItem(KEY) || '';
@@ -30,6 +32,7 @@ function bootstrap() {
   } });
   // Initialize MSAL while idle; Link's popup can then open promptly on click.
   mail.client().catch(() => {});
+  const drive = new TranscriptDrive({ client: () => mail.client(), linkedAccount: () => mail.account });
 
   new PrivacyView({
     view: $('privacyView'), controls: document.querySelector('.privacy-controls'),
@@ -58,6 +61,40 @@ function bootstrap() {
     $('import').disabled = transcribing || importBusy;
     $('upload').disabled = transcribing;
   }
+  const driveMessage = (text = '', error = false) => {
+    $('driveMessage').textContent = text;
+    $('driveMessage').classList.toggle('error', error);
+  };
+  function updateDrive() {
+    $('exportDrive').disabled = driveBusy || !$('transcript').value.trim();
+    $('importDrive').disabled = driveBusy;
+    $('clearDrive').disabled = driveBusy;
+  }
+  async function driveAction(action) {
+    if (driveBusy) return;
+    // Snapshot only the text being uploaded; later edits and transcription
+    // results are left in the field and never replaced by Drive operations.
+    const text = $('transcript').value;
+    driveBusy = true; updateDrive(); driveMessage('Connecting to OneDrive…');
+    try {
+      if (action === 'export') {
+        const name = await drive.upload(text);
+        driveMessage(`Saved ${name} to OneDrive.`);
+      } else if (action === 'import') {
+        const result = await drive.exportZip(driveMessage);
+        download(result.blob, result.name);
+        driveMessage(`Downloaded Transcripts ZIP · ${result.count} text files and COMPLETE.txt.`);
+      } else {
+        const result = await drive.clear(count => confirm(`Delete ${count} text file${count === 1 ? '' : 's'} directly inside this app’s OneDrive Transcripts folder? Other files and folders will be kept.`), driveMessage);
+        driveMessage(result.cancelled ? 'Clear cancelled.' : `Deleted ${result.count} text file${result.count === 1 ? '' : 's'} from OneDrive Transcripts.`);
+      }
+    } catch (error) { driveMessage(error.message || 'OneDrive operation failed.', true); }
+    finally { driveBusy = false; updateDrive(); }
+  }
+  $('exportDrive').addEventListener('click', () => driveAction('export'));
+  $('importDrive').addEventListener('click', () => driveAction('import'));
+  $('clearDrive').addEventListener('click', () => driveAction('clear'));
+  $('transcript').addEventListener('input', updateDrive);
   function renderHistory() {
     $('history').replaceChildren();
     for (const entry of [...history].reverse()) {
@@ -185,23 +222,23 @@ function bootstrap() {
     transcribing = true; updateKey(); let cleanupFailed = false;
     try {
       const text = await transcribeFile(file, apiKey, $('speakers').checked, (status, transcript, error) => {
-        if (transcript !== undefined) $('transcript').value = transcript;
+        if (transcript !== undefined) { $('transcript').value = transcript; updateDrive(); }
         if (error) cleanupFailed = true;
         message(status, error);
       });
-      $('transcript').value = text;
+      $('transcript').value = text; updateDrive();
       if (!cleanupFailed) message('');
     } catch (error) { message(error.message || 'Transcription failed.', true); }
     finally { transcribing = false; updateKey(); }
   });
 
   window.addEventListener('beforeunload', event => {
-    if (recorder.state !== 'idle' || transcribing) { event.preventDefault(); event.returnValue = ''; }
+    if (recorder.state !== 'idle' || transcribing || driveBusy) { event.preventDefault(); event.returnValue = ''; }
   });
   window.addEventListener('pagehide', () => {
     mail.unlink(); recorder.dispose(); wakeGeneration++;
     wakeLock?.release().catch(() => {}); file = null;
   });
   window.addEventListener('pageshow', event => { if (event.persisted) location.reload(); });
-  updateRecorder(); updateKey(); renderHistory();
+  updateRecorder(); updateKey(); updateDrive(); renderHistory();
 }
