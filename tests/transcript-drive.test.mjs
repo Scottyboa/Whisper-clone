@@ -53,7 +53,10 @@ function harness({ missing = false, files = [], nested = {}, contents = {}, page
       const item = items.get(match[1]);
       if (!item) return json({}, 404);
       if (method === 'DELETE') { items.delete(item.id); return new Response(null, { status: 204 }); }
-      return json({ ...item, '@microsoft.graph.downloadUrl': `https://downloads.example/${encodeURIComponent(item.id)}` });
+      // OneDrive may omit this annotation when $select filters metadata.
+      // Mimic that behavior so ZIP tests exercise the actual download request.
+      return json({ ...item, ...(!url.searchParams.has('$select') ?
+        { '@microsoft.graph.downloadUrl': `https://downloads.example/${encodeURIComponent(item.id)}` } : {}) });
     }
     throw new Error(`Unexpected request: ${method} ${url}`);
   };
@@ -117,6 +120,34 @@ test('source COMPLETE.txt is preserved rather than silently overwritten in ZIP',
   assert.equal(await zip.file('Transcripts/COMPLETE-original-2.txt').async('string'),'old');
   assert.equal(await zip.file('Transcripts/COMPLETE-original-1.txt').async('string'),'keep');
   assert.match(await zip.file('Transcripts/COMPLETE.txt').async('string'),/old/);
+});
+
+test('file downloads request default metadata so OneDrive can include its download annotation', async () => {
+  const h=harness({files:[file('text','a.txt')],contents:{text:'Saved transcript'}});
+  const {blob}=await h.drive.exportZip();const zip=await JSZip.loadAsync(await blob.arrayBuffer());
+  assert.equal(await zip.file('Transcripts/a.txt').async('string'),'Saved transcript');
+  const metadata=h.calls.find(c=>c.url.pathname.endsWith('/items/text'));
+  assert.equal(metadata.url.search,'');
+});
+
+test('missing or malformed download links give a useful error without fetching or mutating files', async () => {
+  for(const link of [undefined,null,'','   ','not a url']) {
+    const h=harness({files:[file('text','a.txt')],intercept:({url,items})=>
+      url.pathname.endsWith('/items/text')?json({...items.get('text'),'@microsoft.graph.downloadUrl':link}):null});
+    await assert.rejects(h.drive.exportZip(),error=>{
+      assert.equal(error.name,'Error');assert.match(error.message,/download link for a\.txt/);return true;
+    });
+    assert.ok(h.calls.every(c=>c.url.hostname==='graph.microsoft.com'&&c.method==='GET'));
+  }
+});
+
+test('download links must use HTTPS and contain no embedded credentials', async () => {
+  for(const link of ['http://downloads.example/text','javascript:alert(1)','https://user:pass@downloads.example/text']) {
+    const h=harness({files:[file('text','a.txt')],intercept:({url,items})=>
+      url.pathname.endsWith('/items/text')?json({...items.get('text'),'@microsoft.graph.downloadUrl':link}):null});
+    await assert.rejects(h.drive.exportZip(),/Invalid OneDrive download URL/);
+    assert.ok(h.calls.every(c=>c.url.hostname==='graph.microsoft.com'&&c.method==='GET'));
+  }
 });
 
 test('COMPLETE.txt sorts timestamps correctly with different fractional seconds or offsets', async () => {

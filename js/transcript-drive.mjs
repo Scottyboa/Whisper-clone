@@ -147,12 +147,20 @@ export class TranscriptDrive {
   }
 
   async fileBytes(token, item, parentId) {
-    const fresh = await (await this.request(token, `${itemPath(item.id)}?$select=id,name,file,folder,remoteItem,parentReference,eTag,@microsoft.graph.downloadUrl`)).json();
+    // Fetch the default driveItem response. The preauthenticated download URL
+    // is an annotation that OneDrive can omit when metadata is filtered by $select.
+    const fresh = await (await this.request(token, itemPath(item.id))).json();
     checkChild(fresh, parentId);
     if (!fresh.file || fresh.folder || fresh.name !== item.name || (item.eTag && fresh.eTag !== item.eTag)) {
       throw new Error('A OneDrive file changed during the download. Try Imp. Drive again.');
     }
-    const url = new URL(fresh['@microsoft.graph.downloadUrl']);
+    const downloadUrl = fresh['@microsoft.graph.downloadUrl'];
+    if (typeof downloadUrl !== 'string' || !downloadUrl.trim()) {
+      throw new Error(`OneDrive did not provide a download link for ${item.name}. Try Imp. Drive again.`);
+    }
+    let url;
+    try { url = new URL(downloadUrl); }
+    catch { throw new Error(`OneDrive returned an invalid download link for ${item.name}. Try Imp. Drive again.`); }
     if (url.protocol !== 'https:' || url.username || url.password) throw new Error('Invalid OneDrive download URL.');
     // Browser /content requests redirect after a CORS preflight. Microsoft's
     // preauthenticated URL avoids that; never send the Graph token to it.
