@@ -1,32 +1,30 @@
-// A privacy view may only appear after recording has stopped successfully.
+// Presentation only: no recorder, mail, storage, or transcription dependencies.
 export class PrivacyView {
-  constructor({ stopRecording, isStopped, show, restore }) {
-    this.stopRecording = stopRecording;
-    this.isStopped = isStopped;
-    this.show = show; this.restore = restore;
-    this.active = false; this.transitioning = false;
+  constructor({ view, controls, code, toggleButton }) {
+    this.view = view; this.controls = controls; this.code = code;
+    this.toggleButton = toggleButton; this.active = false;
+    this.home = document.createComment('View controls');
+    controls.before(this.home);
+    // Escape must not provide another way out of the mockup.
+    view.addEventListener('cancel', event => event.preventDefault());
+    toggleButton.addEventListener('click', () => this.toggle(code.value));
   }
 
-  get blocked() { return this.active || this.transitioning; }
-
-  async toggle(code = '') {
-    if (this.transitioning) return false;
+  toggle(code = '') {
     if (this.active) {
-      if (String(code).trim() !== '1') return false;
+      if (String(code) !== '1') return false;
+      this.view.close();
+      this.home.after(this.controls);
       this.active = false;
-      this.restore();
-      return true;
-    }
-    // Set this before awaiting Stop to block new local/email recording commands.
-    this.transitioning = true;
-    try {
-      await this.stopRecording();
-      if (!this.isStopped()) throw new Error('Recording must stop before switching views.');
+    } else {
+      // Cover even an open import dialog without closing it. The real UI stays
+      // mounted and all background tasks continue unchanged.
+      this.view.prepend(this.controls);
+      this.view.showModal();
       this.active = true;
-      this.show();
-      return true;
-    } finally {
-      this.transitioning = false;
     }
+    this.code.value = '';
+    this.toggleButton.focus({ preventScroll: true });
+    return true;
   }
 }

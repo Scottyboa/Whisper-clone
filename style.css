@@ -10,9 +10,33 @@ dialog{border:1px solid #dfe6e2;border-radius:14px;padding:28px;max-width:calc(1
 .privacy-controls{position:fixed;top:10px;right:12px;z-index:20;display:flex;align-items:center;gap:8px;height:28px}
 button.privacy-toggle{width:20px;height:20px;padding:0;min-width:20px;border:0;border-radius:5px;background:#2c9b59;flex-shrink:0}
 button.privacy-toggle:hover:enabled{background:#25834b}
+button.privacy-toggle:active{background:#207342;transform:translateY(1px)}
 #privacyCode{width:38px;height:28px;border:1px solid #d7dfdc;border-radius:5px;padding:3px 6px;text-align:center;background:#fff;color:#24302f;font-size:13px}
-.privacy-view{min-height:100vh;padding:110px 24px 40px}
-.privacy-card{max-width:720px;margin:0 auto}
-.privacy-card h1{font-size:25px}
-.privacy-card h2{margin-top:26px;font-size:16px}
-.privacy-card p{max-width:650px;margin:14px 0 0;color:#67766f;line-height:1.7;font-size:14px}
+dialog.privacy-view{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;border:0;border-radius:0;padding:48px 0 0;box-shadow:none;background:#f5f7f6;color:#24302f;overflow:auto;overscroll-behavior:contain}
+.privacy-view::backdrop{background:#f5f7f6}
+.privacy-view button:active:enabled{transform:translateY(1px);background:#e0e7e3;box-shadow:inset 0 2px 4px #24302f20}
+.demo-top-bar{display:flex;align-items:center;justify-content:space-between;gap:24px;background:#e0e0e0;padding:20px;flex-wrap:wrap}
+.demo-top-bar button{font-size:16px;padding:10px 16px;white-space:nowrap}
+.demo-top-center,.demo-top-right,.demo-clinical-tools{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.demo-top-center{flex:1;justify-content:center;gap:28px}
+.demo-clinical-tools{gap:8px;font-size:14px}
+.demo-recording-area{max-width:1400px;margin:20px auto;padding:24px}
+.demo-heading{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:20px}
+.demo-heading h1{font-size:22px}
+.demo-timer{font-size:18px;margin-bottom:12px;font-variant-numeric:tabular-nums}
+.demo-record-buttons{display:flex;gap:10px;flex-wrap:wrap}
+.privacy-view .demo-start{background:#285c4e;border-color:#285c4e;color:white}
+.privacy-view .demo-start:hover{background:#214d41}
+.privacy-view .demo-start:active{background:#193e34}
+.demo-record-buttons button:disabled{background:#e1e4e3;border-color:#d0d5d3;color:#8b9390;opacity:1}
+.demo-error{margin:24px 0;text-align:center;font-size:clamp(24px,3vw,36px);line-height:1.3;font-weight:600;color:#d00000}
+.demo-panels{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
+.demo-panel{padding:16px;border:1px solid #d7dde4;border-radius:10px;background:white;min-width:0}
+.demo-language-field{max-width:280px;margin-bottom:14px}
+.demo-language-field>span{display:block;font-size:13px;font-weight:600;margin-bottom:6px}
+.demo-language-field button{width:100%;padding:8px 10px;font-size:15px;font-weight:400;text-align:left;border:1px solid #b8c2cf;border-radius:6px}
+.demo-select{display:inline-flex;align-items:center;justify-content:space-between;gap:24px}
+.demo-select::after{content:'';width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);margin:0 3px 3px 0;flex-shrink:0}
+.demo-log{height:clamp(300px,48vh,650px)}
+@media(max-width:800px){.demo-panels{grid-template-columns:1fr}.demo-log{height:300px}.demo-panel{padding:12px}.demo-top-bar{gap:16px;padding:16px}.demo-top-center{justify-content:flex-start;gap:16px;flex-basis:100%;order:2}.demo-recording-area{padding:16px;margin-top:8px}}
+@media print{body:has(.privacy-view[open])>*:not(.privacy-view){display:none!important}.privacy-view[open]{position:static;height:auto}.privacy-view .privacy-controls{display:none}.demo-log{height:300px}}

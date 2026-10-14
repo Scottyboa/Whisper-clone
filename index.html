@@ -6,24 +6,64 @@
   <meta name="referrer" content="no-referrer">
   <title>Whisper-clone</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="style.css?v=20261014-privacy1">
+  <link rel="stylesheet" href="style.css?v=20261014-demo1">
   <script defer src="vendor/ort/ort.min.js"></script>
   <script defer src="vendor/vad/bundle.min.js"></script>
   <script defer src="vendor/msal/msal-browser.min.js"></script>
-  <script type="module" src="js/app.mjs?v=20261014-privacy1"></script>
+  <script type="module" src="js/app.mjs?v=20261014-demo1"></script>
 </head>
 <body>
   <div class="privacy-controls">
-    <input id="privacyCode" type="text" inputmode="numeric" maxlength="1" aria-label="Return code" autocomplete="off" hidden>
-    <button id="privacyToggle" class="privacy-toggle" type="button" aria-label="Switch view"></button>
+    <input id="privacyCode" type="text" inputmode="numeric" autocomplete="off" spellcheck="false">
+    <button id="privacyToggle" class="privacy-toggle" type="button"></button>
   </div>
-  <section id="privacyView" class="privacy-view" hidden>
-    <div class="privacy-card">
-      <h1>System configuration</h1>
-      <h2>Pending numerical calculation syntax</h2>
-      <p>Transistors are semiconductor devices that switch or amplify electrical signals. In computers, billions of transistors form logic gates that process binary values and perform calculations.</p>
+  <dialog id="privacyView" class="privacy-view" aria-labelledby="demoTitle">
+    <div class="demo-top-bar">
+      <button type="button">Back to front page</button>
+      <div class="demo-top-center">
+        <button type="button">Guide</button>
+        <button type="button">Status and updates</button>
+        <div class="demo-clinical-tools">
+          <span>Clinical tools:</span>
+          <button class="demo-select" type="button">Select</button>
+        </div>
+      </div>
+      <div class="demo-top-right">
+        <button type="button">Prices</button>
+        <button class="demo-select" type="button">English</button>
+      </div>
     </div>
-  </section>
+    <div class="demo-recording-area">
+      <div class="demo-heading">
+        <h1 id="demoTitle">Translator</h1>
+        <button type="button">Back to notes</button>
+      </div>
+      <div class="demo-timer">Recording Timer: 0 sec</div>
+      <div class="demo-record-buttons">
+        <button class="demo-start" type="button">Start</button>
+        <button type="button" disabled>Pause</button>
+        <button type="button" disabled>Stop</button>
+        <button type="button" disabled>Abort</button>
+      </div>
+      <p class="demo-error">Error: Unable to initiate recording.</p>
+      <div class="demo-panels">
+        <section class="demo-panel">
+          <div class="demo-language-field">
+            <span id="demoLanguageA">Your language</span>
+            <button class="demo-select" type="button" aria-labelledby="demoLanguageA demoLanguageAValue"><span id="demoLanguageAValue">Norwegian</span></button>
+          </div>
+          <div class="demo-log"></div>
+        </section>
+        <section class="demo-panel">
+          <div class="demo-language-field">
+            <span id="demoLanguageB">Patient’s language</span>
+            <button class="demo-select" type="button" aria-labelledby="demoLanguageB demoLanguageBValue"><span id="demoLanguageBValue">Polish</span></button>
+          </div>
+          <div class="demo-log"></div>
+        </section>
+      </div>
+    </div>
+  </dialog>
   <div id="recordingView" class="app">
     <aside aria-label="Recording history">
       <h2>History</h2>
