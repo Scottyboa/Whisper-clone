@@ -7,3 +7,12 @@
 dialog{border:1px solid #dfe6e2;border-radius:14px;padding:28px;max-width:calc(100vw - 32px);width:370px;box-shadow:0 16px 80px #24302f24}dialog::backdrop{background:#172a2250}dialog p{margin:0 0 22px}dialog input{width:100%;border:1px solid #d7dfdc;border-radius:8px;padding:11px 12px}.dialog-buttons{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}#importStatus{font-size:13px;margin-top:12px;overflow-wrap:anywhere}
 @media(max-width:900px){main{padding:26px 24px}.app{grid-template-columns:210px minmax(0,1fr)}header{align-items:flex-start;flex-direction:column}.key-row input{flex:1;width:100px}}
 @media(max-width:620px){.app{display:flex;flex-direction:column}main{padding:22px 18px;order:0}aside{order:1;position:static;max-height:none;border-right:0;border-top:1px solid #e0e6e3;padding:22px 18px}.history{max-height:260px;overflow:auto}.record-panel{min-height:270px;padding:28px 15px}.key-row button{padding:10px 12px}.record-buttons button{min-width:82px}.file-row{gap:8px;flex-wrap:wrap}.file-row #fileName{order:2;flex-basis:100%}.file-row #transcribe{margin-left:auto}.remote-controls{gap:10px}.transcript-heading h2{max-width:60%;font-size:14px}}
+.privacy-controls{position:fixed;top:10px;right:12px;z-index:20;display:flex;align-items:center;gap:8px;height:28px}
+button.privacy-toggle{width:20px;height:20px;padding:0;min-width:20px;border:0;border-radius:5px;background:#2c9b59;flex-shrink:0}
+button.privacy-toggle:hover:enabled{background:#25834b}
+#privacyCode{width:38px;height:28px;border:1px solid #d7dfdc;border-radius:5px;padding:3px 6px;text-align:center;background:#fff;color:#24302f;font-size:13px}
+.privacy-view{min-height:100vh;padding:110px 24px 40px}
+.privacy-card{max-width:720px;margin:0 auto}
+.privacy-card h1{font-size:25px}
+.privacy-card h2{margin-top:26px;font-size:16px}
+.privacy-card p{max-width:650px;margin:14px 0 0;color:#67766f;line-height:1.7;font-size:14px}

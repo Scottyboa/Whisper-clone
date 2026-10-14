@@ -6,14 +6,25 @@
   <meta name="referrer" content="no-referrer">
   <title>Whisper-clone</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20261014-privacy1">
   <script defer src="vendor/ort/ort.min.js"></script>
   <script defer src="vendor/vad/bundle.min.js"></script>
   <script defer src="vendor/msal/msal-browser.min.js"></script>
-  <script type="module" src="js/app.mjs?v=20261013-link1"></script>
+  <script type="module" src="js/app.mjs?v=20261014-privacy1"></script>
 </head>
 <body>
-  <div class="app">
+  <div class="privacy-controls">
+    <input id="privacyCode" type="text" inputmode="numeric" maxlength="1" aria-label="Return code" autocomplete="off" hidden>
+    <button id="privacyToggle" class="privacy-toggle" type="button" aria-label="Switch view"></button>
+  </div>
+  <section id="privacyView" class="privacy-view" hidden>
+    <div class="privacy-card">
+      <h1>System configuration</h1>
+      <h2>Pending numerical calculation syntax</h2>
+      <p>Transistors are semiconductor devices that switch or amplify electrical signals. In computers, billions of transistors form logic gates that process binary values and perform calculations.</p>
+    </div>
+  </section>
+  <div id="recordingView" class="app">
     <aside aria-label="Recording history">
       <h2>History</h2>
       <div id="history" class="history"></div>

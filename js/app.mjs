@@ -3,6 +3,7 @@ import { clock, duration, dateStamp, timeStamp, recordingName, download } from '
 import { MailControl } from './graph.mjs?v=20261013-link1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';
 import { transcribeFile } from './soniox.mjs';
+import { PrivacyView } from './privacy-view.mjs?v=20261014-privacy1';
 
 // MSAL's parent window consumes its popup response. Do not start a second
 // recorder, alter the URL, or consume the authorization code in this popup.
@@ -14,6 +15,7 @@ function bootstrap() {
   const KEY = 'whisper-clone.soniox-key', HISTORY = 'whisper-clone.recordings';
   let apiKey = '', history = [], file = null, transcribing = false, linking = false;
   let wakeLock = null, wakeGeneration = 0, importBusy = false;
+  let privacy;
   const message = (text = '', error = false) => { $('message').textContent = text; $('message').classList.toggle('error', error); };
   try {
     apiKey = sessionStorage.getItem(KEY) || '';
@@ -29,6 +31,35 @@ function bootstrap() {
   } });
   // Initialize MSAL while idle; Link's popup can then open promptly on click.
   mail.client().catch(() => {});
+
+  const originalTitle = document.title;
+  privacy = new PrivacyView({
+    // Always queue Stop, even if Start is still loading or queued.
+    stopRecording: () => runCommand('stop'),
+    isStopped: () => recorder.state === 'idle',
+    show: () => {
+      if ($('importDialog').open) $('importDialog').close();
+      $('recordingView').hidden = true; $('privacyView').hidden = false;
+      $('privacyCode').value = ''; $('privacyCode').hidden = false;
+      document.title = 'System configuration';
+      mail.linkedAt = Date.now();
+      $('privacyToggle').focus();
+    },
+    restore: () => {
+      // Discard commands sent while this view was active, even if a poll was delayed.
+      mail.linkedAt = Date.now();
+      $('privacyView').hidden = true; $('recordingView').hidden = false;
+      $('privacyCode').value = ''; $('privacyCode').hidden = true;
+      document.title = originalTitle;
+      $('privacyToggle').focus();
+    },
+  });
+  $('privacyToggle').addEventListener('click', async () => {
+    $('privacyToggle').disabled = true;
+    try { await privacy.toggle($('privacyCode').value); }
+    catch (error) { message(error.message || 'Could not switch views.', true); }
+    finally { $('privacyToggle').disabled = false; }
+  });
 
   function updateRecorder() {
     const state = recorder.state;
@@ -75,6 +106,7 @@ function bootstrap() {
   }
 
   async function runCommand(action) {
+    if (privacy?.blocked && (action === 'start' || action === 'resume')) return;
     try {
       const result = await recorder.command(action);
       if (!result) return;
