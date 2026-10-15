@@ -5,6 +5,7 @@ class SonioxBatchCapture extends AudioWorkletProcessor {
     super();
     this.frameSamples = options.processorOptions.frameSamples;
     this.input = [];
+    this.inputTime = null;
     this.drained = false;
     this.port.onmessage = ({ data }) => {
       if (data?.message === 'SONIOX_DRAIN') {
@@ -35,16 +36,19 @@ class SonioxBatchCapture extends AudioWorkletProcessor {
       while (index < end) { sum += this.input[index++]; count++; }
       frame[out] = count ? sum / count : 0;
     }
+    const audioTime = this.inputTime;
     this.input = this.input.slice(index);
-    this.port.postMessage({ message: 'AUDIO_FRAME', data: frame.buffer }, [frame.buffer]);
+    this.inputTime += index / sampleRate;
+    this.port.postMessage({ message: 'AUDIO_FRAME', audioTime, data: frame.buffer }, [frame.buffer]);
   }
 
   process(inputs) {
     if (this.drained) return true;
     const audio = inputs[0]?.[0];
     if (audio) {
-      for (const sample of audio) {
-        this.input.push(sample);
+      for (let i = 0; i < audio.length; i++) {
+        if (!this.input.length) this.inputTime = currentTime + i / sampleRate;
+        this.input.push(audio[i]);
         if (this.input.length * 16000 / sampleRate >= this.frameSamples) this.emitFrame();
       }
     }

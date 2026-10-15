@@ -1,3 +1,4 @@
+import { timingChunk } from './wav-timing.mjs?v=20261015-clock1';
 export const SAMPLE_RATE = 16000;
 
 // WhisperAzure/js/soniox.js batch settings (source commit 2ec1c0b).
@@ -20,14 +21,15 @@ export function toPCM(samples) {
   return pcm;
 }
 
-export function wavBlob(parts) {
+export function wavBlob(parts, timing = null) {
   const samples = parts.reduce((sum, part) => sum + part.length, 0);
   const bytes = samples * 2;
-  if (bytes > 0xffffffff - 36) throw new Error('Recording is too large for a WAV file.');
+  const metadata = timingChunk(timing, samples);
+  if (bytes + (metadata?.length || 0) > 0xffffffff - 36) throw new Error('Recording is too large for a WAV file.');
   const header = new ArrayBuffer(44);
   const view = new DataView(header);
   const text = (offset, value) => [...value].forEach((c, i) => view.setUint8(offset + i, c.charCodeAt(0)));
-  text(0, 'RIFF'); view.setUint32(4, 36 + bytes, true); text(8, 'WAVE');
+  text(0, 'RIFF'); view.setUint32(4, 36 + bytes + (metadata?.length || 0), true); text(8, 'WAVE');
   text(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true);
   view.setUint16(22, 1, true); view.setUint32(24, SAMPLE_RATE, true);
   view.setUint32(28, SAMPLE_RATE * 2, true); view.setUint16(32, 2, true);
@@ -39,7 +41,7 @@ export function wavBlob(parts) {
     part.forEach((sample, i) => result.setInt16(i * 2, sample, true));
     return result.buffer;
   });
-  return new Blob([header, ...encoded], { type: 'audio/wav' });
+  return new Blob([header, ...encoded, ...(metadata ? [metadata] : [])], { type: 'audio/wav' });
 }
 
 const pad = value => String(value).padStart(2, '0');

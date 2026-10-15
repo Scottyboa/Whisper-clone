@@ -1,19 +1,23 @@
+import { prepareAudio, clockLabel } from './wav-timing.mjs?v=20261015-clock1';
 import { CONFIG } from './config.mjs';
 
-export function renderTranscript(result, speakers) {
+export function renderTranscript(result, speakers, timing = null) {
   const tokens = Array.isArray(result.tokens) ? result.tokens : [];
   if (!speakers || !tokens.some(token => token.speaker != null)) {
     return (result.text || tokens.map(token => token.text || '').join('')).trim();
   }
-  const lines = []; let current = null, text = '';
+  const lines = []; let current = null, text = '', startedAt = null;
   const flush = () => {
-    if (text.trim()) lines.push(`${current == null ? '' : `Speaker ${current}: `}${text.trim()}`);
-    text = '';
+    const stamp = clockLabel(timing, startedAt);
+    if (text.trim()) lines.push(`${stamp ? `(${stamp}) ` : ''}${current == null ? '' : `Speaker ${current}: `}${text.trim()}`);
+    text = ''; startedAt = null;
   };
   for (const token of tokens) {
     const next = token.speaker ?? current;
     if (next !== current && text.trim()) flush();
-    current = next; text += token.text || '';
+    current = next;
+    if (startedAt == null && token.text?.trim() && Number.isFinite(token.start_ms)) startedAt = token.start_ms;
+    text += token.text || '';
   }
   flush(); return lines.join('\n\n');
 }
@@ -43,7 +47,8 @@ export async function transcribeFile(file, apiKey, speakers, onStatus = () => {}
   let cleanupOK = true;
   try {
     onStatus('Uploading…');
-    const form = new FormData(); form.append('file', file, file.name);
+    const prepared = await prepareAudio(file);
+    const form = new FormData(); form.append('file', prepared.file, file.name);
     const upload = await (await request('files', { method: 'POST', body: form })).json();
     fileId = upload.id;
     if (!fileId) throw new Error('Soniox did not return a file ID.');
@@ -63,7 +68,7 @@ export async function transcribeFile(file, apiKey, speakers, onStatus = () => {}
       await wait(2000);
     }
     const result = await (await request(`transcriptions/${encodeURIComponent(transcriptionId)}/transcript`)).json();
-    const text = renderTranscript(result, speakers);
+    const text = renderTranscript(result, speakers, prepared.timing);
     // Display the result before deleting provider resources.
     onStatus('Cleaning up…', text);
     return text;

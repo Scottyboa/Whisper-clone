@@ -11,7 +11,7 @@ const account = { homeAccountId: 'recording-account' };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => { resolve=a; reject=b; }); return {promise,resolve,reject}; };
 const app = readFileSync(new URL('../js/app.mjs', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '');
-function harness({ key = 'soniox-key', speech = true, transcribe, upload } = {}) {
+function harness({ key = 'soniox-key', speech = true, timed = false, transcribe, upload } = {}) {
   const elements = new Map(), downloads = [], transcriptions = [], uploads = [], commands = [];
   const makeElement = () => ({
     value: '', checked: false, disabled: false, textContent: '', children: [], listeners: new Map(),
@@ -24,7 +24,7 @@ function harness({ key = 'soniox-key', speech = true, transcribe, upload } = {})
   class Recorder extends RealRecorder {
     constructor(options) {
       super({ ...options, now: () => now, createVAD: async callbacks => ({
-        drainAndPause: async () => { if (speech) callbacks.onSpeechEnd(new Float32Array(16000).fill(0.2)); },
+        drainAndPause: async () => { if (speech) callbacks.onSpeechEnd(new Float32Array(16000).fill(0.2), timed ? [[0,16000,now]] : null); },
         destroy() {},
       }) }); recorder=this;
     }
@@ -166,4 +166,21 @@ test('real mailbox polling processes later commands during transcription and ded
   await mail.poll(); assert.equal(h.downloads.length,1);assert.equal(h.recorder.state,'recording');
   await mail.poll(); assert.equal(h.downloads.length,1);assert.equal(h.transcriptions.length,1);
   gate.resolve('done');await tick();assert.equal(h.uploads.length,1);
+});
+
+test('automatic workflow uploads real clock-stamped output and preserves the same timing map in its WAV download',async()=>{
+  const original=globalThis.fetch;
+  globalThis.fetch=async(url,opts={})=>new Response(JSON.stringify(opts.method==='DELETE'?{}:
+    url.endsWith('/files')?{id:'file'}:opts.method==='POST'?{id:'job'}:
+    url.endsWith('/transcript')?{tokens:[{text:'Clock-stamped text',speaker:1,start_ms:0}]}:{status:'completed'}));
+  try {
+    const h=harness({timed:true,transcribe:realTranscribe});
+    await h.mail.onCommand('start');h.advance(10000);await h.mail.onCommand('stop-and-transcribe');
+    for(let i=0;i<30&&!h.uploads.length;i++)await tick();
+    assert.match(h.uploads[0].text,/^\(10:00:10\) Speaker 1: Clock-stamped text$/);
+    assert.equal(h.el('transcript').value,h.uploads[0].text);
+    const {prepareAudio}=await import('../js/wav-timing.mjs');
+    const prepared=await prepareAudio(new File([h.downloads[0].blob],'saved.wav'));
+    assert.ok(prepared.timing);assert.equal(prepared.file.size,32044);
+  }finally{globalThis.fetch=original;}
 });

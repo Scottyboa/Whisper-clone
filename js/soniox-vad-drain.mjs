@@ -1,13 +1,27 @@
+import { CaptureTiming } from './capture-timing.mjs?v=20261015-clock1';
+
 // Adapter for the pinned vad-web 0.0.22 API. No fixed sleep is used to
 // infer completion: capture acknowledges its last frame, then inference
 // drains in order, then pause emits the final speech segment.
 export async function createDrainableSonioxVAD(factory, options) {
-  let disposed = false;
+  let disposed = false, frameEpoch = NaN;
+  const timing = new CaptureTiming(), frameTimes = new WeakMap();
   const guarded = { ...options };
   for (const name of ['onSpeechStart', 'onSpeechEnd', 'onVADMisfire', 'onFrameProcessed']) {
     guarded[name] = (...args) => { if (!disposed) return options[name]?.(...args); };
   }
+  guarded.onFrameProcessed = (probs, frame) => {
+    if (disposed) return;
+    timing.add(frame.length, frameEpoch);
+    return options.onFrameProcessed?.(probs, frame);
+  };
+  guarded.onSpeechEnd = audio => {
+    if (!disposed) return options.onSpeechEnd?.(audio, timing.speech(audio.length));
+  };
   const mic = await factory.new(guarded);
+  // Anchor AudioContext time once. Inference and delayed UI callbacks cannot
+  // move the original capture timestamp of a frame.
+  const audioEpoch = (options.captureNow || Date.now)() - mic.audioContext.currentTime * 1000;
   const node = mic.audioNodeVAD;
   let tail = Promise.resolve();
   let frameError = null;
@@ -20,9 +34,12 @@ export async function createDrainableSonioxVAD(factory, options) {
       throw new Error('Unsupported Silero VAD version; safe pause cannot be installed.');
     }
     const processFrame = node.processFrame.bind(node);
-    node.processFrame = (frame) => {
-      const work = tail.then(() => {
-        if (!disposed) return processFrame(frame);
+    node.processFrame = (frame, capturedAt = frameTimes.get(frame)) => {
+      const work = tail.then(async () => {
+        if (disposed) return;
+        frameEpoch = capturedAt;
+        await processFrame(frame);
+        timing.retain(node.frameProcessor.audioBuffer?.length || 0);
       });
       // Observe failures immediately, without unhandled promise rejections.
       tail = work.catch(error => { frameError ||= error; });
@@ -33,7 +50,7 @@ export async function createDrainableSonioxVAD(factory, options) {
     const oldNode = node.audioNode;
     if (oldNode?.port) {
       await mic.audioContext.audioWorklet.addModule(
-        new URL('./soniox-vad-worklet.js', import.meta.url).href
+        new URL('./soniox-vad-worklet.js?v=20261015-clock1', import.meta.url).href
       );
       const capture = new AudioWorkletNode(mic.audioContext, 'soniox-batch-capture', {
         processorOptions: { frameSamples: node.frameProcessor.options.frameSamples },
@@ -49,7 +66,8 @@ export async function createDrainableSonioxVAD(factory, options) {
       capture.onprocessorerror = () => rejectCapture(new Error('Audio capture processor failed.'));
       capture.port.onmessage = ({ data }) => {
         if (disposed) return;
-        if (data?.message === 'AUDIO_FRAME') node.processFrame(new Float32Array(data.data));
+        if (data?.message === 'AUDIO_FRAME') node.processFrame(new Float32Array(data.data),
+          Number.isFinite(data.audioTime) ? audioEpoch + data.audioTime * 1000 : NaN);
         else if (data?.message === 'SONIOX_DRAINED') acknowledge();
       };
       mic.sourceNode.disconnect();
@@ -68,7 +86,29 @@ export async function createDrainableSonioxVAD(factory, options) {
       const callback = oldNode?.onaudioprocess;
       if (typeof callback !== 'function') throw new Error('Unsupported VAD audio capture.');
       const callbacks = new Set();
+      let inputEpoch = NaN, bufferedEpoch = NaN;
+      const resampler = node.resampler;
+      if (resampler) {
+        const resample = resampler.process.bind(resampler);
+        resampler.process = input => {
+          const buffered = resampler.inputBuffer.length;
+          const first = buffered && Number.isFinite(bufferedEpoch) ? bufferedEpoch : inputEpoch;
+          const frames = resample(input);
+          const rate = resampler.options.nativeSampleRate;
+          let consumed = 0;
+          for (const frame of frames) {
+            const epoch = consumed < buffered ? first + consumed / rate * 1000 : inputEpoch + (consumed - buffered) / rate * 1000;
+            frameTimes.set(frame, epoch);
+            consumed += Math.ceil(frame.length * rate / 16000);
+          }
+          bufferedEpoch = consumed < buffered ? first + consumed / rate * 1000 : inputEpoch + (consumed - buffered) / rate * 1000;
+          return frames;
+        };
+      }
       oldNode.onaudioprocess = event => {
+        // ScriptProcessor can skip a busy callback. Timestamp each input buffer
+        // independently so a skipped buffer does not shift the remaining audio.
+        inputEpoch = audioEpoch + (mic.audioContext.currentTime - event.inputBuffer.duration) * 1000;
         const work = Promise.resolve(callback(event));
         callbacks.add(work);
         work.then(() => callbacks.delete(work), error => {

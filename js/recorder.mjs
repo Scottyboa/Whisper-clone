@@ -1,5 +1,5 @@
-import { createDrainableSonioxVAD } from './soniox-vad-drain.mjs';
-import { VAD_RULES, SAMPLE_RATE, toPCM, wavBlob } from './audio.mjs';
+import { createDrainableSonioxVAD } from './soniox-vad-drain.mjs?v=20261015-clock1';
+import { VAD_RULES, SAMPLE_RATE, toPCM, wavBlob } from './audio.mjs?v=20261015-clock1';
 
 export class Recorder {
   constructor({ onChange = () => {}, now = Date.now, createVAD } = {}) {
@@ -9,6 +9,7 @@ export class Recorder {
     this.startedAt = null; this.context = null; this.mic = null;
     this.acceptingAudio = false; this.disposed = false;
     this.queue = Promise.resolve();
+    this.timingSegments = []; this.timingValid = true;
   }
 
   // Called synchronously by Start/Link, while the user's click can unlock audio.
@@ -71,11 +72,14 @@ export class Recorder {
   async beginCapture() {
     this.acceptingAudio = true;
     this.mic = await this.createVAD({
-      ...VAD_RULES,
+      ...VAD_RULES, captureNow: this.now,
       onSpeechStart: () => {}, onVADMisfire: () => {},
       onFrameProcessed: () => {},
-      onSpeechEnd: audio => {
+      onSpeechEnd: (audio, timing) => {
         if (!this.acceptingAudio || this.disposed || !audio.length) return;
+        if (Array.isArray(timing) && timing.length) {
+          for (const [offset, length, epoch] of timing) this.timingSegments.push([this.samples + offset, length, epoch]);
+        } else this.timingValid = false;
         this.parts.push(toPCM(audio)); this.samples += audio.length;
       },
     });
@@ -95,6 +99,8 @@ export class Recorder {
     if (action === 'start') {
       if (this.state !== 'idle') return;
       this.parts = []; this.samples = 0; this.startedAt = null;
+      this.timingSegments = []; this.timingValid = true;
+      this.timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       this.setState('starting');
       try {
         await this.beginCapture();
@@ -128,14 +134,16 @@ export class Recorder {
         id: crypto.randomUUID(), startedAt: this.startedAt, endedAt,
         elapsedMs: Math.max(0, endedAt - this.startedAt), audioMs: this.samples / SAMPLE_RATE * 1000,
       };
-      const blob = this.samples ? wavBlob(this.parts) : null;
+      const timeline = this.timingValid ? { version: 1, sampleRate: SAMPLE_RATE, timeZone: this.timeZone, segments: this.timingSegments } : null;
+      const blob = this.samples ? wavBlob(this.parts, timeline) : null;
       this.parts = []; this.samples = 0; this.startedAt = null;
+      this.timingSegments = [];
       this.setState('idle');
       return { entry, blob };
     }
   }
   dispose() {
-    this.disposed = true; this.acceptingAudio = false; this.parts = [];
+    this.disposed = true; this.acceptingAudio = false; this.parts = []; this.timingSegments = [];
     this.mic?.stream?.getTracks().forEach(track => track.stop());
     try { this.mic?.destroy(); } catch {}
     this.context?.close().catch(() => {});
