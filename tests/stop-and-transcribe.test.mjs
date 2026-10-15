@@ -6,18 +6,20 @@ import { Recorder as RealRecorder } from '../js/recorder.mjs';
 import { parseCommand, MailControl } from '../js/graph.mjs';
 import { transcribeFile as realTranscribe } from '../js/soniox.mjs';
 import * as audio from '../js/audio.mjs';
+import { createDriveImportPrompt } from '../js/drive-import-prompt.mjs';
 
 const account = { homeAccountId: 'recording-account' };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => { resolve=a; reject=b; }); return {promise,resolve,reject}; };
 const app = readFileSync(new URL('../js/app.mjs', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '');
-function harness({ key = 'soniox-key', speech = true, timed = false, transcribe, upload, onCapture, onDrain, downloadError = false, abortConfirmed = true } = {}) {
-  const elements = new Map(), downloads = [], transcriptions = [], uploads = [], commands = [], captures = [];
+function harness({ key = 'soniox-key', speech = true, timed = false, transcribe, upload, onCapture, onDrain, downloadError = false, abortConfirmed = true, readDrive } = {}) {
+  const elements = new Map(), downloads = [], transcriptions = [], uploads = [], commands = [], captures = [], importCalls = [];
   const makeElement = () => ({
     value: '', checked: false, disabled: false, textContent: '', children: [], listeners: new Map(),
     classList: { toggle() {}, add() {}, remove() {} },
     addEventListener(name, fn) { this.listeners.set(name, fn); },
     append(...nodes) { this.children.push(...nodes); }, replaceChildren() { this.children=[]; },
+    showModal() { this.open=true; },close() { this.open=false;this.listeners.get('close')?.(); },focus() {},
   });
   const el = id => { if (!elements.has(id)) elements.set(id,makeElement()); return elements.get(id); };
   let mail, recorder, devices, now = new Date(2026,9,15,10,0).getTime();
@@ -40,6 +42,7 @@ function harness({ key = 'soniox-key', speech = true, timed = false, transcribe,
   class Drive {
     async upload(text, options) { uploads.push({text, options}); return upload ? upload(text,options) : options?.name || 'manual.txt'; }
     async clear(confirm) { return {count:0,cancelled:false}; }
+    async exportZip(progress,options) { importCalls.push(options);return readDrive ? readDrive(progress,options) : {blob:new Blob(['zip']),name:'Transcripts.zip',count:1,completeText:'COMPLETE.txt\n\nrecording.txt\n\nSpeaker 1: Imported text'}; }
   }
   class Devices {
     constructor(options) { Object.assign(this,options);this.active=false;this.account=account;devices=this; }
@@ -47,14 +50,14 @@ function harness({ key = 'soniox-key', speech = true, timed = false, transcribe,
   }
   const context = vm.createContext({
     ...audio, download: (blob,name) => { downloads.push({blob,name}); if(downloadError)throw new Error('download blocked'); }, Recorder, MailControl: Mail, TranscriptDrive: Drive,
-    PrivacyView: class {}, File, DeviceControl:Devices, DevicesPanel:class{dispose(){}},createAbortPrompt:()=>async()=>abortConfirmed,
+    PrivacyView: class {}, File, createDriveImportPrompt, DeviceControl:Devices, DevicesPanel:class{dispose(){}},createAbortPrompt:()=>async()=>abortConfirmed,
     transcribeFile: async (...args) => { transcriptions.push(args); return transcribe ? transcribe(...args) : 'Speaker 1: Hello\n\nSpeaker 2: Hi'; },
     sessionStorage: {getItem: name => name.endsWith('soniox-key') ? key : null, setItem() {}, removeItem() {}},
     document: {getElementById:el,querySelector:makeElement,createElement:makeElement,createTextNode:text=>({text}),addEventListener() {}},
     window: {opener:null,addEventListener() {}}, location: {}, navigator: {}, setInterval() {}, confirm:()=>true,
   });
   vm.runInContext(app,context);
-  return { el, downloads, transcriptions, uploads, commands, captures, recorder, mail, devices, advance: ms => {now+=ms;} };
+  return { el, downloads, transcriptions, uploads, commands, captures, recorder, mail, devices, importCalls, advance: ms => {now+=ms;} };
 }
 const commandMail = (overrides={}) => ({id:'command-id', subject:'', body:{contentType:'text',content:'stop and transcribe'},
   from:{emailAddress:{address:'self@example.com'}}, sender:{emailAddress:{address:'self@example.com'}},
@@ -314,4 +317,57 @@ test('email unlink preserves shared authentication while Devices remains connect
   const mail=new MailControl({auth,preserveAuth:()=>true});mail.clientPromise=Promise.resolve(auth);
   mail.unlink();await tick();assert.equal(cleared,0);assert.equal(mail.active,false);
   mail.preserveAuth=()=>false;mail.unlink();await tick();assert.equal(cleared,1);
+});
+
+test('Drive import defaults to both choices and pastes the exact COMPLETE text while downloading ZIP',async()=>{
+  const h=harness();h.el('transcript').value='previous output';await h.mail.onCommand('start');
+  const work=h.el('importDrive').listeners.get('click')();assert.equal(h.el('driveImportDialog').open,true);
+  assert.equal(h.el('driveImportPaste').checked,true);assert.equal(h.el('driveImportZip').checked,true);assert.equal(h.el('driveImportApply').textContent,'Import');
+  h.el('driveImportApply').listeners.get('click')();await work;
+  assert.equal(h.el('transcript').value,'COMPLETE.txt\n\nrecording.txt\n\nSpeaker 1: Imported text');
+  assert.equal(h.downloads.length,1);assert.equal(h.downloads[0].name,'Transcripts.zip');assert.equal(h.importCalls[0].includeZip,true);
+  assert.equal(h.el('driveImportDialog').open,false);assert.equal(h.recorder.state,'recording');assert.equal(h.el('exportDrive').disabled,false);
+});
+
+test('Drive import supports paste-only and ZIP-only independently',async()=>{
+  for(const paste of [true,false]){
+    const h=harness();h.el('transcript').value='leave this for ZIP-only';const work=h.el('importDrive').listeners.get('click')();
+    h.el('driveImportPaste').checked=paste;h.el('driveImportZip').checked=!paste;
+    h.el('driveImportPaste').listeners.get('change')();h.el('driveImportApply').listeners.get('click')();await work;
+    assert.equal(h.importCalls[0].includeZip,!paste);assert.equal(h.downloads.length,paste?0:1);
+    assert.equal(h.el('transcript').value,paste?'COMPLETE.txt\n\nrecording.txt\n\nSpeaker 1: Imported text':'leave this for ZIP-only');
+  }
+});
+
+test('no import choices changes the button to Exit and makes no OneDrive request',async()=>{
+  const h=harness();h.el('transcript').value='unchanged';const work=h.el('importDrive').listeners.get('click')();
+  h.el('driveImportPaste').checked=false;h.el('driveImportZip').checked=false;
+  h.el('driveImportZip').listeners.get('change')();assert.equal(h.el('driveImportApply').textContent,'Exit');
+  h.el('driveImportApply').listeners.get('click')();await work;
+  assert.equal(h.importCalls.length,0);assert.equal(h.downloads.length,0);assert.equal(h.el('transcript').value,'unchanged');assert.equal(h.el('driveImportDialog').open,false);
+});
+
+test('red close and Escape cancel import; opening again restores both defaults',async()=>{
+  const h=harness();h.el('transcript').value='unchanged';let work=h.el('importDrive').listeners.get('click')();
+  h.el('driveImportZip').checked=false;h.el('driveImportClose').listeners.get('click')();await work;
+  work=h.el('importDrive').listeners.get('click')();assert.equal(h.el('driveImportZip').checked,true);assert.equal(h.el('driveImportPaste').checked,true);
+  h.el('driveImportDialog').listeners.get('cancel')({preventDefault(){}});await work;
+  assert.equal(h.importCalls.length,0);assert.equal(h.el('transcript').value,'unchanged');
+});
+
+test('failed Drive import preserves previous output and restores import controls',async()=>{
+  const h=harness({readDrive:()=>{throw new Error('OneDrive offline');}});h.el('transcript').value='keep existing text';
+  const work=h.el('importDrive').listeners.get('click')();h.el('driveImportApply').listeners.get('click')();await work;
+  assert.equal(h.el('transcript').value,'keep existing text');assert.equal(h.downloads.length,0);
+  assert.match(h.el('driveMessage').textContent,/OneDrive offline/);assert.equal(h.el('importDrive').disabled,false);
+});
+
+test('import selected during an automatic upload queues safely instead of silently dropping the request',async()=>{
+  const gate=deferred(),h=harness({upload:()=>gate.promise});await h.mail.onCommand('start');
+  const work=h.el('importDrive').listeners.get('click')();
+  await h.mail.onCommand('stop-and-transcribe');await tick();assert.equal(h.uploads.length,1);
+  h.el('driveImportZip').checked=false;h.el('driveImportApply').listeners.get('click')();await tick();
+  assert.equal(h.importCalls.length,0);gate.resolve('uploaded.txt');await work;await tick();
+  assert.equal(h.importCalls.length,1);assert.equal(h.el('transcript').value,'COMPLETE.txt\n\nrecording.txt\n\nSpeaker 1: Imported text');
+  assert.equal(h.recorder.state,'recording');
 });

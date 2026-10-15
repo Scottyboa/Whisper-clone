@@ -1,4 +1,5 @@
 import { Recorder } from './recorder.mjs?v=20261015-devices1';
+import { createDriveImportPrompt } from './drive-import-prompt.mjs?v=20261015-import1';
 import { DeviceControl } from './device-control.mjs?v=20261015-devices1';
 import { DevicesPanel, createAbortPrompt } from './devices-panel.mjs?v=20261015-devices1';
 import { clock, duration, dateStamp, timeStamp, recordingName, recordingTranscriptName, download } from './audio.mjs?v=20261015-clock1';
@@ -6,7 +7,7 @@ import { MailControl } from './graph.mjs?v=20261015-devices1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';
 import { transcribeFile } from './soniox.mjs?v=20261015-clock1';
 import { PrivacyView } from './privacy-view.mjs?v=20261014-demo1';
-import { TranscriptDrive } from './transcript-drive.mjs?v=20261015-devices1';
+import { TranscriptDrive } from './transcript-drive.mjs?v=20261015-import1';
 
 // MSAL's parent window consumes its popup response. Do not start a second
 // recorder, alter the URL, or consume the authorization code in this popup.
@@ -37,6 +38,7 @@ function bootstrap() {
   // Initialize MSAL while idle; Link's popup can then open promptly on click.
   mail.client().catch(() => {});
   const drive = new TranscriptDrive({ client: () => mail.client(), linkedAccount: () => mail.account });
+  const driveImportPrompt = createDriveImportPrompt({dialog:$('driveImportDialog'),paste:$('driveImportPaste'),zip:$('driveImportZip'),apply:$('driveImportApply'),close:$('driveImportClose')});
   const confirmAbort = createAbortPrompt({dialog:$('abortDialog'),text:$('abortQuestion'),yes:$('abortYes'),no:$('abortNo')});
   let deviceName = 'This computer';
   try { deviceName = localStorage.getItem('whisper-clone.device-name') || deviceName; } catch {}
@@ -98,10 +100,10 @@ function bootstrap() {
     driveQueue = job.catch(() => {});
     return job;
   }
-  async function driveAction(action) {
-    if (driveBusy) return;
-    // Snapshot only the text being uploaded; later edits and transcription
-    // results are left in the field and never replaced by Drive operations.
+  async function driveAction(action, options = {paste:true,zip:true}) {
+    if (driveBusy && action !== 'import') return;
+    // Export snapshots the current text. Import replaces the field only when
+    // the user explicitly selects COMPLETE.txt insertion in its dialog.
     const text = $('transcript').value;
     return queueDrive(async () => {
       driveMessage('Connecting to OneDrive…');
@@ -110,9 +112,11 @@ function bootstrap() {
           const name = await drive.upload(text);
           driveMessage(`Saved ${name} to OneDrive.`);
         } else if (action === 'import') {
-          const result = await drive.exportZip(driveMessage);
-          download(result.blob, result.name);
-          driveMessage(`Downloaded Transcripts ZIP · ${result.count} text files and COMPLETE.txt.`);
+          const result = await drive.exportZip(driveMessage, {includeZip:options.zip});
+          if (options.paste) { $('transcript').value = result.completeText; updateDrive(); }
+          if (options.zip) download(result.blob, result.name);
+          const actions = [options.paste ? 'Inserted COMPLETE.txt' : '', options.zip ? 'Downloaded Transcripts ZIP' : ''].filter(Boolean);
+          driveMessage(`${actions.join(' · ')} · ${result.count} text files.`);
         } else {
           const result = await drive.clear(count => confirm(`Delete ${count} text file${count === 1 ? '' : 's'} directly inside this app’s OneDrive Transcripts folder? Other files and folders will be kept.`), driveMessage);
           driveMessage(result.cancelled ? 'Clear cancelled.' : `Deleted ${result.count} text file${result.count === 1 ? '' : 's'} from OneDrive Transcripts.`);
@@ -121,7 +125,10 @@ function bootstrap() {
     });
   }
   $('exportDrive').addEventListener('click', () => driveAction('export'));
-  $('importDrive').addEventListener('click', () => driveAction('import'));
+  $('importDrive').addEventListener('click', async () => {
+    const options = await driveImportPrompt();
+    if (options) await driveAction('import', options);
+  });
   $('clearDrive').addEventListener('click', () => driveAction('clear'));
   $('transcript').addEventListener('input', updateDrive);
   function renderHistory() {

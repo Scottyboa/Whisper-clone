@@ -111,6 +111,7 @@ test('ZIP titles text copies, preserves binary files and combines text chronolog
   assert.equal(await zip.file('Transcripts/Subfolder/nested.txt').async('string'),'nested.txt\n\nSecond');
   assert.deepEqual([...await zip.file('Transcripts/image.bin').async('uint8array')],[0,1,254,255]);
   assert.equal(await zip.file('Transcripts/COMPLETE.txt').async('string'),'COMPLETE.txt\n\n2026-10-14_10-00.txt\n\nFirst\n日本語\n\n--\n\nnested.txt\n\nSecond\n\n--\n\n2026-10-14_12-00.txt\n\nThird');
+  assert.equal(result.completeText,await zip.file('Transcripts/COMPLETE.txt').async('string'));
   assert.equal(h.calls.filter(c=>c.method!=='GET').length,0);
 });
 
@@ -250,4 +251,14 @@ test('automatic upload refuses an account switch and invalid filenames before an
     await assert.rejects(h.drive.upload('text',{name}),/filename/);
   }
   assert.equal(h.calls.length,0);
+});
+
+test('paste-only COMPLETE generation matches ZIP text without constructing ZIP or fetching binary files',async()=>{
+  const h=harness({files:[file('text','recording.txt'),file('binary','keep.bin')],contents:{text:'日本語\nSpeaker 1: Hello',binary:'binary bytes'}});
+  const zipResult=await h.drive.exportZip();const zip=await JSZip.loadAsync(await zipResult.blob.arrayBuffer());
+  h.calls.length=0;h.drive.zipFactory=()=>assert.fail('ZIP should not be constructed for paste-only');
+  const pasteResult=await h.drive.exportZip(()=>{},{includeZip:false});
+  assert.equal(pasteResult.blob,null);assert.equal(pasteResult.completeText,await zip.file('Transcripts/COMPLETE.txt').async('string'));
+  assert.equal(pasteResult.count,1);assert.ok(h.calls.every(c=>!c.url.pathname.endsWith('/binary')));
+  assert.ok(h.calls.every(c=>c.method==='GET'));
 });

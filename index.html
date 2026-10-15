@@ -6,12 +6,12 @@
   <meta name="referrer" content="no-referrer">
   <title>Whisper-clone</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="style.css?v=20261015-devices1">
+  <link rel="stylesheet" href="style.css?v=20261015-import1">
   <script defer src="vendor/ort/ort.min.js"></script>
   <script defer src="vendor/vad/bundle.min.js"></script>
   <script defer src="vendor/msal/msal-browser.min.js"></script>
   <script defer src="vendor/jszip/jszip.min.js"></script>
-  <script type="module" src="js/app.mjs?v=20261015-devices1"></script>
+  <script type="module" src="js/app.mjs?v=20261015-import1"></script>
 </head>
 <body>
   <div class="privacy-controls">
@@ -120,6 +120,14 @@
       </section>
     </main>
   </div>
+  <dialog id="driveImportDialog" class="drive-import-dialog" aria-labelledby="driveImportTitle">
+    <button id="driveImportClose" class="drive-import-close" type="button" aria-label="Close import options">×</button>
+    <h2 id="driveImportTitle">Import from OneDrive</h2>
+    <label class="drive-import-option"><input id="driveImportPaste" type="checkbox" checked><span>Insert COMPLETE.txt into the transcript field</span></label>
+    <label class="drive-import-option"><input id="driveImportZip" type="checkbox" checked><span>Download the ZIP file</span></label>
+    <p class="drive-import-help">Inserting COMPLETE.txt replaces the current transcript.</p>
+    <div class="dialog-buttons"><button id="driveImportApply" class="primary" type="button">Import</button></div>
+  </dialog>
   <dialog id="abortDialog" aria-labelledby="abortQuestion">
     <p id="abortQuestion">Are you sure you want to abort?</p>
     <div class="dialog-buttons"><button id="abortNo" type="button">No</button><button id="abortYes" class="danger" type="button">Yes, discard</button></div>

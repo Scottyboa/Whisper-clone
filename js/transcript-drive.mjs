@@ -179,11 +179,11 @@ export class TranscriptDrive {
     return new Uint8Array(await response.arrayBuffer());
   }
 
-  async exportZip(onProgress = () => {}) {
+  async exportZip(onProgress = () => {}, { includeZip = true } = {}) {
     const token = await this.token();
     const folder = await this.folder(token);
-    const zip = this.zipFactory(), texts = [], seen = new Set();
-    const archiveRoot = zip.folder(TRANSCRIPT_FOLDER);
+    const zip = includeZip ? this.zipFactory() : null, texts = [], seen = new Set();
+    const archiveRoot = zip?.folder(TRANSCRIPT_FOLDER);
     const visit = async (folderId, prefix = '') => {
       if (seen.has(folderId)) throw new Error('Invalid OneDrive folder hierarchy.');
       seen.add(folderId);
@@ -199,27 +199,32 @@ export class TranscriptDrive {
         }
         const path = `${prefix}${name}`;
         if (item.folder) {
-          archiveRoot.folder(path);
+          archiveRoot?.folder(path);
           await visit(item.id, `${path}/`);
         } else if (item.file) {
+          if (!includeZip && !isText(item)) continue;
           onProgress(`Downloading ${item.name}…`);
           const bytes = await this.fileBytes(token, item, folderId);
           if (isText(item)) {
             // Titles are added only to the downloaded copies. Use the exported
             // filename, including any rename that preserves a source COMPLETE.txt.
             const text = `${name}\n\n${new TextDecoder().decode(bytes)}`;
-            archiveRoot.file(path, text);
+            archiveRoot?.file(path, text);
             texts.push({ path, created: Date.parse(item.createdDateTime) || 0, text });
-          } else { archiveRoot.file(path, bytes); }
+          } else { archiveRoot?.file(path, bytes); }
         } else { throw new Error('The Transcripts folder contains an unsupported OneDrive item.'); }
       }
     };
     if (folder) await visit(folder.id);
     texts.sort((a, b) => a.created - b.created || a.path.localeCompare(b.path));
-    archiveRoot.file('COMPLETE.txt', `COMPLETE.txt\n\n${texts.map(entry => entry.text).join('\n\n--\n\n')}`);
-    onProgress('Creating ZIP…');
-    const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
-    return { blob, name: `${TRANSCRIPT_FOLDER}_${uploadFilename(this.now()).replace(/\.txt$/, '')}.zip`, count: texts.length };
+    const completeText = `COMPLETE.txt\n\n${texts.map(entry => entry.text).join('\n\n--\n\n')}`;
+    let blob = null;
+    if (includeZip) {
+      archiveRoot.file('COMPLETE.txt', completeText);
+      onProgress('Creating ZIP…');
+      blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+    }
+    return { blob, name: `${TRANSCRIPT_FOLDER}_${uploadFilename(this.now()).replace(/\.txt$/, '')}.zip`, count: texts.length, completeText };
   }
 
   async clear(confirm, onProgress = () => {}) {
