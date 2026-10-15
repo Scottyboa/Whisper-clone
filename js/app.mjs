@@ -1,7 +1,7 @@
 import { Recorder } from './recorder.mjs?v=20261015-devices1';
 import { createDriveImportPrompt } from './drive-import-prompt.mjs?v=20261015-import1';
-import { DeviceControl } from './device-control.mjs?v=20261015-devices1';
-import { DevicesPanel, createAbortPrompt } from './devices-panel.mjs?v=20261015-devices1';
+import { DeviceControl } from './device-control.mjs?v=20261015-devices2';
+import { DevicesPanel, createAbortPrompt } from './devices-panel.mjs?v=20261015-devices2';
 import { clock, duration, dateStamp, timeStamp, recordingName, recordingTranscriptName, download } from './audio.mjs?v=20261015-clock1';
 import { MailControl } from './graph.mjs?v=20261015-devices1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';

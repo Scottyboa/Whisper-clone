@@ -54,18 +54,49 @@ function network(){
     throw new Error(`Unexpected request ${method} ${path}`);
   };
   const now=()=>clock;
-  const make=(name,execute)=>{
+  const make=(name,execute,{hostTimers=false}={})=>{
     const authCalls=[],timers=[],actions=[],state={state:'idle',audioReady:true,transcribing:false};
     const auth={getAllAccounts:()=>[account],acquireTokenSilent:async options=>{authCalls.push(options);return {account,accessToken:'test-token'};},
       acquireTokenPopup:()=>assert.fail('Background popup'),loginPopup:()=>assert.fail('Unexpected popup')};
     const drive=new TranscriptDrive({client:async()=>auth,fetcher});
     const device=new DeviceControl({drive,now,name,makeId:()=>`00000000-0000-4000-8000-${String(++ids).padStart(12,'0')}`,
       getStatus:()=>state,execute:async action=>{actions.push(action);if(execute)return execute(action);state.state=action==='start'?'recording':action==='pause'?'paused':'idle';},
-      schedule:(fn,delay)=>{const timer={fn,delay};timers.push(timer);return timer;},cancel:timer=>{if(timer)timer.cancelled=true;}});
+      schedule:function(fn,delay){
+        if(hostTimers&&this!==globalThis)throw new TypeError('Illegal invocation');
+        const timer={fn,delay};timers.push(timer);return timer;
+      },cancel:function(timer){
+        if(hostTimers&&this!==globalThis)throw new TypeError('Illegal invocation');
+        if(timer)timer.cancelled=true;
+      }});
     return {device,drive,auth,authCalls,timers,actions,state};
   };
   return {make,files,calls,write,now,advance:ms=>clock+=ms,intercept:fn=>{intercept=fn;},metadata};
 }
+
+test('browser timer receivers allow connecting, repeated heartbeats, commands and disconnecting',async()=>{
+  const n=network(),a=n.make('Work',undefined,{hostTimers:true});
+  await a.device.connect();
+  assert.equal(a.device.active,true);assert.equal(a.device.status,'Connected');
+  const session=a.device.id;
+  for(let cycle=0;cycle<3;cycle++){
+    const timer=a.timers.at(-1);assert.equal(timer.delay,5000);
+    n.advance(timer.delay);await timer.fn();
+    assert.equal(a.device.rows.find(row=>row.sessionId===session).at,n.now());
+    const stored=[...n.files.values()].find(file=>file.name===`session-${session}.json`);
+    assert.equal(JSON.parse(stored.text).at,n.now());
+  }
+  await a.device.send(session,'start');
+  n.advance(5000);await a.timers.at(-1).fn();
+  await Promise.all([...a.device.inflight.values()]);
+  assert.deepEqual(a.actions,['start']);
+  await a.device.refresh();assert.equal(a.device.rows[0].state,'recording');
+  const timer=a.timers.at(-1),writes=n.calls.filter(call=>call.method==='PUT').length;
+  a.device.disconnect();assert.equal(timer.cancelled,true);assert.equal(a.device.active,false);
+  n.advance(5000);await timer.fn();
+  assert.equal(n.calls.filter(call=>call.method==='PUT').length,writes);
+  await a.device.connect();assert.equal(a.device.active,true);assert.notEqual(a.device.id,session);
+  a.device.disconnect();
+});
 
 test('presence lists both tabs under the same account with independent identities and audio status',async()=>{
   const n=network(),a=n.make('Work'),b=n.make('Home');await a.device.connect();await b.device.connect();

@@ -19,7 +19,9 @@ const cleanName = value => String(value || '').trim().replace(/[\u0000-\u001f]/g
 export class DeviceControl {
   constructor({ drive, execute, getStatus, onChange = () => {}, now = Date.now,
     makeId = () => crypto.randomUUID(), schedule = setTimeout, cancel = clearTimeout, name = 'This computer' }) {
-    Object.assign(this, { drive, execute, getStatus, onChange, now, makeId, schedule, cancel });
+    Object.assign(this, { drive, execute, getStatus, onChange, now, makeId });
+    // Browser timer functions require the Window receiver, not this controller.
+    this.schedule = schedule.bind(globalThis); this.cancel = cancel.bind(globalThis);
     this.name = cleanName(name); this.active = false; this.generation = 0; this.timer = null;
     this.id = null; this.account = null; this.folderId = null; this.rows = []; this.pending = new Map();
     this.seen = new Set(); this.acks = new Map(); this.inflight = new Map(); this.status = 'Not connected'; this.cycle = null;

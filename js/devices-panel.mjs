@@ -1,4 +1,4 @@
-import { RECENT_MS } from './device-control.mjs?v=20261015-devices1';
+import { RECENT_MS } from './device-control.mjs?v=20261015-devices2';
 const labels = {start:'Start',pause:'Pause',resume:'Resume',stop:'Stop','stop-and-transcribe':'Stop and transcribe',abort:'Abort'};
 const stateLabels = {idle:'Ready',starting:'Starting…',recording:'Recording',pausing:'Pausing…',paused:'Paused',resuming:'Resuming…',stopping:'Finishing…',aborting:'Discarding…',error:'Audio error'};
 export function createAbortPrompt({dialog, text, yes, no}) {
