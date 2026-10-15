@@ -37,12 +37,16 @@ export class TranscriptDrive {
     this.account = null;
   }
 
-  async token() {
+  async token({ interactive = true, account: expectedAccount } = {}) {
     // Reuse Whisper-clone's MSAL client, but don't link/unlink mail, change its
     // polling timestamps, or request broader access to the user's Drive.
     const auth = await this.client();
     const accounts = auth.getAllAccounts();
-    const account = this.linkedAccount() ||
+    const linked = this.linkedAccount();
+    if (expectedAccount && linked && expectedAccount.homeAccountId !== linked.homeAccountId) {
+      throw new Error('The linked Microsoft account changed. Use EX.Drive to save the transcript.');
+    }
+    const account = expectedAccount || linked ||
       accounts.find(a => a.homeAccountId === this.account?.homeAccountId) ||
       (accounts.length === 1 ? accounts[0] : null);
     let result;
@@ -50,9 +54,11 @@ export class TranscriptDrive {
       try { result = await auth.acquireTokenSilent({ scopes: SCOPES, account }); }
       catch (error) {
         if (!interactionRequired(error)) throw error;
+        if (!interactive) throw new Error('OneDrive needs sign-in or consent. Click a Drive button, then use EX.Drive to save the transcript.');
         result = await auth.acquireTokenPopup({ scopes: SCOPES, account });
       }
     } else {
+      if (!interactive) throw new Error('Link Microsoft or click a Drive button first, then use EX.Drive to save the transcript.');
       result = await auth.loginPopup({ scopes: SCOPES, prompt: 'select_account' });
     }
     if (!result?.accessToken || !result.account) throw new Error('Microsoft sign-in did not complete. Try the Drive button again.');
@@ -133,13 +139,14 @@ export class TranscriptDrive {
     return result;
   }
 
-  async upload(text) {
+  async upload(text, { name = uploadFilename(this.now()), ...authOptions } = {}) {
     if (typeof text !== 'string' || !text.trim()) throw new Error('The transcript is empty.');
-    const token = await this.token();
+    archiveName(name);
+    if (!/\.txt$/i.test(name) || /[:*?"<>|]/.test(name)) throw new Error('Unsupported transcript filename.');
+    const token = await this.token(authOptions);
     const folder = await this.folder(token, true);
-    // Use the upload time, local to this computer, with milliseconds to avoid
-    // collisions. Explicitly fail rather than overwrite an existing file.
-    const name = uploadFilename(this.now());
+    // Manual uploads use local upload timestamps; automatic uploads use the
+    // recording interval. Fail rather than overwrite an existing file.
     await this.request(token, `${itemPath(folder.id)}:/${encode(name)}:/content?@microsoft.graph.conflictBehavior=fail`, {
       method: 'PUT', headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: text,
     });

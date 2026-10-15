@@ -1,10 +1,10 @@
 import { Recorder } from './recorder.mjs';
-import { clock, duration, dateStamp, timeStamp, recordingName, download } from './audio.mjs';
-import { MailControl } from './graph.mjs?v=20261013-link1';
+import { clock, duration, dateStamp, timeStamp, recordingName, recordingTranscriptName, download } from './audio.mjs?v=20261015-auto1';
+import { MailControl } from './graph.mjs?v=20261015-auto1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';
 import { transcribeFile } from './soniox.mjs';
 import { PrivacyView } from './privacy-view.mjs?v=20261014-demo1';
-import { TranscriptDrive } from './transcript-drive.mjs?v=20261014-drive2';
+import { TranscriptDrive } from './transcript-drive.mjs?v=20261015-auto1';
 
 // MSAL's parent window consumes its popup response. Do not start a second
 // recorder, alter the URL, or consume the authorization code in this popup.
@@ -16,7 +16,8 @@ function bootstrap() {
   const KEY = 'whisper-clone.soniox-key', HISTORY = 'whisper-clone.recordings';
   let apiKey = '', history = [], file = null, transcribing = false, linking = false;
   let wakeLock = null, wakeGeneration = 0, importBusy = false;
-  let driveBusy = false;
+  let driveBusy = false, drivePending = 0, transcriptionPending = 0;
+  let driveQueue = Promise.resolve(), transcriptionQueue = Promise.resolve();
   const message = (text = '', error = false) => { $('message').textContent = text; $('message').classList.toggle('error', error); };
   try {
     apiKey = sessionStorage.getItem(KEY) || '';
@@ -70,26 +71,35 @@ function bootstrap() {
     $('importDrive').disabled = driveBusy;
     $('clearDrive').disabled = driveBusy;
   }
+  function queueDrive(task) {
+    drivePending++; driveBusy = true; updateDrive();
+    const job = driveQueue.then(task).finally(() => {
+      driveBusy = --drivePending > 0; updateDrive();
+    });
+    driveQueue = job.catch(() => {});
+    return job;
+  }
   async function driveAction(action) {
     if (driveBusy) return;
     // Snapshot only the text being uploaded; later edits and transcription
     // results are left in the field and never replaced by Drive operations.
     const text = $('transcript').value;
-    driveBusy = true; updateDrive(); driveMessage('Connecting to OneDrive…');
-    try {
-      if (action === 'export') {
-        const name = await drive.upload(text);
-        driveMessage(`Saved ${name} to OneDrive.`);
-      } else if (action === 'import') {
-        const result = await drive.exportZip(driveMessage);
-        download(result.blob, result.name);
-        driveMessage(`Downloaded Transcripts ZIP · ${result.count} text files and COMPLETE.txt.`);
-      } else {
-        const result = await drive.clear(count => confirm(`Delete ${count} text file${count === 1 ? '' : 's'} directly inside this app’s OneDrive Transcripts folder? Other files and folders will be kept.`), driveMessage);
-        driveMessage(result.cancelled ? 'Clear cancelled.' : `Deleted ${result.count} text file${result.count === 1 ? '' : 's'} from OneDrive Transcripts.`);
-      }
-    } catch (error) { driveMessage(error.message || 'OneDrive operation failed.', true); }
-    finally { driveBusy = false; updateDrive(); }
+    return queueDrive(async () => {
+      driveMessage('Connecting to OneDrive…');
+      try {
+        if (action === 'export') {
+          const name = await drive.upload(text);
+          driveMessage(`Saved ${name} to OneDrive.`);
+        } else if (action === 'import') {
+          const result = await drive.exportZip(driveMessage);
+          download(result.blob, result.name);
+          driveMessage(`Downloaded Transcripts ZIP · ${result.count} text files and COMPLETE.txt.`);
+        } else {
+          const result = await drive.clear(count => confirm(`Delete ${count} text file${count === 1 ? '' : 's'} directly inside this app’s OneDrive Transcripts folder? Other files and folders will be kept.`), driveMessage);
+          driveMessage(result.cancelled ? 'Clear cancelled.' : `Deleted ${result.count} text file${result.count === 1 ? '' : 's'} from OneDrive Transcripts.`);
+        }
+      } catch (error) { driveMessage(error.message || 'OneDrive operation failed.', true); }
+    });
   }
   $('exportDrive').addEventListener('click', () => driveAction('export'));
   $('importDrive').addEventListener('click', () => driveAction('import'));
@@ -119,7 +129,10 @@ function bootstrap() {
 
   async function runCommand(action) {
     try {
-      const result = await recorder.command(action);
+      const automatic = action === 'stop-and-transcribe';
+      // Snapshot configuration at command receipt, before Stop drains the VAD.
+      const key = apiKey, account = mail.account;
+      const result = await recorder.command(automatic ? 'stop' : action);
       if (!result) return;
       const { entry, blob } = result;
       history.push(entry); renderHistory();
@@ -127,10 +140,18 @@ function bootstrap() {
       try { sessionStorage.setItem(HISTORY, JSON.stringify(history)); }
       catch { message('History could not be saved for refresh.', true); }
       if (blob) {
-        download(blob, recordingName(entry));
         message(`Recording finished · ${duration(entry.elapsedMs)} elapsed · ${duration(entry.audioMs)} audio`);
+        try { download(blob, recordingName(entry)); }
+        catch { message('The WAV download could not be started.', true); }
       } else { message('No speech detected.'); }
       $('timer').textContent = clock(entry.elapsedMs);
+      if (automatic && blob) {
+        if (!key) throw new Error('Recording stopped and WAV download requested. Import a Soniox API key before using stop and transcribe.');
+        const source = new File([blob], recordingName(entry), { type: 'audio/wav' });
+        // Don't await the provider job here: mail polling and further recording
+        // commands must continue throughout transcription and Drive upload.
+        queueTranscription(source, key, true, { entry, account }).catch(() => {});
+      }
     } catch (error) { message(error.message || 'Recording failed.', true); throw error; }
   }
   $('start').addEventListener('click', () => {
@@ -217,19 +238,49 @@ function bootstrap() {
     if (!selected) return;
     file = selected; $('fileName').textContent = file.name; updateKey();
   });
-  $('transcribe').addEventListener('click', async () => {
+  function queueTranscription(source, key, speakers, automatic = null) {
+    transcriptionPending++; transcribing = true; updateKey();
+    const job = transcriptionQueue.then(async () => {
+      // Keep this recording available for a manual retry if a provider fails.
+      file = source; $('fileName').textContent = source.name;
+      let cleanupFailed = false;
+      try {
+        const text = await transcribeFile(source, key, speakers, (status, transcript, error) => {
+          if (transcript !== undefined) { $('transcript').value = transcript; updateDrive(); }
+          if (error) cleanupFailed = true;
+          message(status, error);
+        });
+        $('transcript').value = text; updateDrive();
+        if (automatic) {
+          await queueDrive(async () => {
+            driveMessage('Saving recording transcript to OneDrive…');
+            try {
+              const name = await drive.upload(text, {
+                name: recordingTranscriptName(automatic.entry), interactive: false,
+                account: automatic.account,
+              });
+              driveMessage(`Saved ${name} to OneDrive.`);
+            } catch (error) {
+              driveMessage(`Automatic upload failed. The transcript is in the output field; use EX.Drive to retry. ${error.message || ''}`, true);
+              throw error;
+            }
+          });
+        }
+        if (!cleanupFailed) message(automatic ? 'Recording transcribed with speaker labels and saved to OneDrive.' : '');
+      } catch (error) {
+        message(error.message || 'Transcription failed. The WAV is selected for retry.', true);
+        throw error;
+      }
+    }).finally(() => {
+      transcribing = --transcriptionPending > 0; updateKey();
+    });
+    // Serialize manual and automatic jobs, and allow later jobs after a failure.
+    transcriptionQueue = job.catch(() => {});
+    return job;
+  }
+  $('transcribe').addEventListener('click', () => {
     if (!file || !apiKey || transcribing) return;
-    transcribing = true; updateKey(); let cleanupFailed = false;
-    try {
-      const text = await transcribeFile(file, apiKey, $('speakers').checked, (status, transcript, error) => {
-        if (transcript !== undefined) { $('transcript').value = transcript; updateDrive(); }
-        if (error) cleanupFailed = true;
-        message(status, error);
-      });
-      $('transcript').value = text; updateDrive();
-      if (!cleanupFailed) message('');
-    } catch (error) { message(error.message || 'Transcription failed.', true); }
-    finally { transcribing = false; updateKey(); }
+    queueTranscription(file, apiKey, $('speakers').checked).catch(() => {});
   });
 
   window.addEventListener('beforeunload', event => {

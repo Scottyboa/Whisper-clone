@@ -1,5 +1,5 @@
 import { CONFIG } from './config.mjs';
-const SCOPES = ['User.Read', 'Mail.Read'];
+const SCOPES = ['User.Read', 'Mail.Read', 'Files.ReadWrite.AppFolder'];
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 const ageLimit = 120000;
 const normalize = value => String(value || '').trim().toLowerCase();
@@ -18,6 +18,7 @@ export function parseCommand(message, ownAddresses, linkedAt, now = Date.now()) 
     body = new DOMParser().parseFromString(body, 'text/html').body.textContent;
   }
   const command = normalize(body).replace(/\s+/g, ' ');
+  if (command === 'stop and transcribe') return 'stop-and-transcribe';
   const match = /^(start|pause|resume|stop)(?: recording)?$/.exec(command);
   return match?.[1] || null;
 }

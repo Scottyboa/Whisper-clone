@@ -226,3 +226,28 @@ test('unlinked user can sign in for Drive alone; an account mismatch is rejected
   const other=harness();other.auth.acquireTokenSilent=async()=>({accessToken:'graph-token',account:{homeAccountId:'different'}});
   await assert.rejects(other.drive.upload('text'),/same Microsoft account/);assert.equal(other.calls.length,0);
 });
+
+test('automatic upload keeps its recording filename and never opens a background consent popup', async () => {
+  const name='2026-10-15_10-00-00-000_to_2026-10-15_11-00-00-000_VAD-23m45s.txt';
+  const h=harness();
+  assert.equal(await h.drive.upload('Speaker 1: 日本語', {name,interactive:false,account}),name);
+  const put=h.calls.find(c=>c.method==='PUT');
+  assert.equal(decodeURIComponent(put.url.pathname),`/v1.0/me/drive/items/transcripts:/${name}:/content`);
+  assert.equal(put.body,'Speaker 1: 日本語'); assert.deepEqual(h.authCalls.map(c=>c[0]),['silent']);
+  const failed=harness(); failed.auth.acquireTokenSilent=async()=>{throw {name:'InteractionRequiredAuthError'};};
+  await assert.rejects(failed.drive.upload('text',{name,interactive:false,account}),/needs sign-in or consent/);
+  assert.equal(failed.calls.length,0); assert.equal(failed.authCalls.length,0);
+  const noAccount=harness(); noAccount.auth.getAllAccounts=()=>[];
+  await assert.rejects(noAccount.drive.upload('text',{interactive:false}),/Link Microsoft/);
+  assert.equal(noAccount.authCalls.length,0);
+});
+
+test('automatic upload refuses an account switch and invalid filenames before any Drive writes', async () => {
+  const h=harness();h.drive.linkedAccount=()=>({homeAccountId:'other-account'});
+  await assert.rejects(h.drive.upload('text',{account,interactive:false}),/account changed/);
+  assert.equal(h.calls.length,0); assert.equal(h.authCalls.length,0);
+  for (const name of ['../outside.txt','folder/file.txt','bad:name.txt','file.json','COMPLETE.txt/child']) {
+    await assert.rejects(h.drive.upload('text',{name}),/filename/);
+  }
+  assert.equal(h.calls.length,0);
+});

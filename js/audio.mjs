@@ -59,6 +59,14 @@ export function recordingName(entry) {
   return `${dateStamp(start)}_${timeStamp(start).replaceAll(':', '-')}_to_${endDate}${timeStamp(end).replaceAll(':', '-')}_(${duration(entry.audioMs).replaceAll(' ', '')}).wav`;
 }
 
+export function recordingTranscriptName(entry) {
+  const stamp = ms => {
+    const date = new Date(ms);
+    return `${dateStamp(date)}_${timeStamp(date).replaceAll(':', '-')}-${String(date.getMilliseconds()).padStart(3, '0')}`;
+  };
+  return `${stamp(entry.startedAt)}_to_${stamp(entry.endedAt)}_VAD-${duration(entry.audioMs).replaceAll(' ', '')}.txt`;
+}
+
 export function download(blob, filename) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
