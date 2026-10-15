@@ -6,12 +6,12 @@
   <meta name="referrer" content="no-referrer">
   <title>Whisper-clone</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="style.css?v=20261015-import1">
+  <link rel="stylesheet" href="style.css?v=20261015-guide1">
   <script defer src="vendor/ort/ort.min.js"></script>
   <script defer src="vendor/vad/bundle.min.js"></script>
   <script defer src="vendor/msal/msal-browser.min.js"></script>
   <script defer src="vendor/jszip/jszip.min.js"></script>
-  <script type="module" src="js/app.mjs?v=20261015-devices3"></script>
+  <script type="module" src="js/app.mjs?v=20261015-guide1"></script>
 </head>
 <body>
   <div class="privacy-controls">
@@ -73,7 +73,13 @@
     </aside>
     <main>
       <header>
-        <h1>Whisper-clone</h1>
+        <div class="main-heading">
+          <h1>Whisper-clone</h1>
+          <div class="guide-controls">
+            <button id="guide" type="button" aria-haspopup="dialog" aria-controls="guideDialog">Guide</button>
+            <input id="guideCode" type="password" inputmode="numeric" maxlength="32" autocomplete="off" spellcheck="false" aria-label="Guide code">
+          </div>
+        </div>
         <div class="remote-controls">
           <span id="linkStatus" class="small-status" role="status">Not linked</span>
           <button id="link" type="button">Link</button>
@@ -120,6 +126,99 @@
       </section>
     </main>
   </div>
+  <dialog id="guideDialog" class="guide-dialog" aria-labelledby="guideTitle">
+    <div class="guide-heading"><h2 id="guideTitle">App guide</h2><button id="guideClose" class="guide-close" type="button" aria-label="Close guide" autofocus>×</button></div>
+    <div class="guide-content">
+      <p class="guide-intro">Record speech, transcribe audio, and save text to OneDrive. This guide can stay open while the app works.</p>
+      <section aria-labelledby="guideSetup">
+        <h3 id="guideSetup">Getting started</h3>
+        <ol>
+          <li><strong>Import Key:</strong> sign in to Google Drive and enter the password for your existing encrypted Soniox key backup. The key is kept in this tab’s session.</li>
+          <li><strong>Connect Microsoft:</strong> use <strong>Link</strong> for email commands, or <strong>Devices → Connect this tab</strong> for control between computers. Use the same Microsoft account on each computer.</li>
+          <li>Allow microphone access when asked. Use <strong>Start</strong> locally, or enable audio in Devices before starting remotely.</li>
+        </ol>
+      </section>
+      <section aria-labelledby="guideRecording">
+        <h3 id="guideRecording">Recording buttons</h3>
+        <table class="guide-table"><thead><tr><th scope="col">Button</th><th scope="col">What happens</th></tr></thead><tbody>
+          <tr><th scope="row">Start</th><td>Starts a new recording. Pressing Start while already recording does not create another recording.</td></tr>
+          <tr><th scope="row">Pause / Resume</th><td>Pauses audio capture, then continues the same recording. The button changes to Resume while paused.</td></tr>
+          <tr><th scope="row">Stop</th><td>Finishes the recording and requests a local WAV download. It does not automatically transcribe or restart.</td></tr>
+          <tr><th scope="row">Abort</th><td>Asks for confirmation, then discards the current recording without saving or transcribing it. Previous background jobs continue.</td></tr>
+          <tr><th scope="row">Keep awake</th><td>Requests that the screen stay awake while this page is visible, if the browser supports it. Keep the computer awake and the tab open.</td></tr>
+        </tbody></table>
+        <p><strong>Timer and VAD:</strong> the timer shows elapsed time, including pauses. Voice activity detection removes most silence from the saved audio, so its audio duration can be shorter.</p>
+        <p><strong>History:</strong> select a recording to see its date, start, stop, elapsed time and retained audio duration. History stores those details, not a playable archive of the WAV files.</p>
+      </section>
+      <section aria-labelledby="guideAutomatic">
+        <h3 id="guideAutomatic">Stop and transcribe</h3>
+        <p>Send this command by email or use it in Devices. It:</p>
+        <ol>
+          <li>Finishes the current recording and requests its WAV download.</li>
+          <li>Starts a fresh recording once the previous audio has been finalized.</li>
+          <li>Transcribes the previous audio with speaker labels in the background, then uploads the finished TXT to OneDrive.</li>
+        </ol>
+        <p>The TXT filename includes the complete recording interval and the audio duration after VAD. Approving or blocking the local download does not control transcription or the transcript upload. A Soniox key and Microsoft connection are needed for the full workflow.</p>
+        <p>To finish recording without an automatic restart, use ordinary <strong>Stop</strong>.</p>
+      </section>
+      <section aria-labelledby="guideEmail">
+        <h3 id="guideEmail">Email commands</h3>
+        <p>Click <strong>Link</strong>, then send an email <strong>from yourself to yourself</strong> using that Microsoft account. Leave the subject empty. Put only one command in the body, without a signature:</p>
+        <table class="guide-table"><thead><tr><th scope="col">Email body</th><th scope="col">Action</th></tr></thead><tbody>
+          <tr><th scope="row"><code>start</code></th><td>Start recording.</td></tr>
+          <tr><th scope="row"><code>pause</code></th><td>Pause recording.</td></tr>
+          <tr><th scope="row"><code>resume</code></th><td>Continue the paused recording.</td></tr>
+          <tr><th scope="row"><code>stop</code></th><td>Finish and download, with no automatic restart.</td></tr>
+          <tr><th scope="row"><code>stop and transcribe</code></th><td>Finish, restart recording, transcribe and upload the previous recording.</td></tr>
+        </tbody></table>
+        <p>Capital letters do not matter. The first four commands also accept <code>recording</code> at the end, for example <code>Start recording</code>. Only new emails received after linking and within the last two minutes are eligible.</p>
+        <p>Email can affect every computer linked to that mailbox; use Devices to target one tab. <strong>Unlink</strong> stops email monitoring. Abort is available through the recording button or Devices.</p>
+      </section>
+      <section aria-labelledby="guideDevices">
+        <h3 id="guideDevices">Devices: control a particular tab</h3>
+        <ol>
+          <li>Open <strong>Devices</strong> on each computer and connect each tab using the same Microsoft account. Give tabs clear names, such as Home PC and Work PC.</li>
+          <li><strong>Enable audio here</strong> prepares the tab you are currently using for remote recording. Click it locally on the computer you want to record with. It does not start recording.</li>
+          <li>Select a tab in the list, then choose <strong>Start, Pause, Resume, Stop, Stop and transcribe,</strong> or <strong>Abort</strong>. Buttons enable when appropriate for that tab’s current state.</li>
+        </ol>
+        <p>Status updates about every five seconds; <strong>Refresh</strong> also fetches the latest status and command results. Commands expire after 60 seconds.</p>
+        <p>Presence expires after ten seconds without an update. Connected tabs delete expired status files from OneDrive. If every tab was closed, cleanup resumes when a tab next connects. Each session updates one status file; separate tabs have separate entries.</p>
+        <p><strong>Close</strong> only closes this window. <strong>Disconnect</strong> stops this tab’s Devices connection. Recording commands leave the connection active, including after Stop or Abort.</p>
+      </section>
+      <section aria-labelledby="guideTranscription">
+        <h3 id="guideTranscription">Transcribe a file</h3>
+        <p>Use <strong>Upload File</strong> to select audio, choose whether you want <strong>Speaker labels</strong>, then press <strong>Transcribe</strong>. Results appear in the transcript field. You can edit that text and save it with <strong>EX.Drive</strong>.</p>
+        <p>With speaker labels enabled, recordings made by this app can show original clock times beside speaker turns, even after VAD removed silence. Older audio still transcribes; original clock times require the recording’s timing metadata.</p>
+        <p><strong>Clear</strong> beside Import Key removes the Soniox key from this tab’s session after confirmation. It does not delete Drive files.</p>
+      </section>
+      <section aria-labelledby="guideDrive">
+        <h3 id="guideDrive">OneDrive files</h3>
+        <p>The app uses its own OneDrive app folder. <strong>Transcripts</strong> contains saved text; <strong>DeviceControl</strong> contains temporary device status, commands and replies. WAV downloads are saved locally, not uploaded to OneDrive by this app.</p>
+        <table class="guide-table"><thead><tr><th scope="col">Button</th><th scope="col">What happens</th></tr></thead><tbody>
+          <tr><th scope="row">EX.Drive</th><td>Saves the current transcript field as a new TXT file named with the export date and time. Automatic recording transcripts instead use their recording interval and VAD audio duration.</td></tr>
+          <tr><th scope="row">Imp. Drive</th><td>Offers two options, both checked by default: insert the combined COMPLETE.txt into the transcript field, and download a ZIP with the individual files and COMPLETE.txt. Choose either or both. Inserting replaces the current transcript field. Uncheck both to change Import to Exit, or close the prompt with its red ×.</td></tr>
+          <tr><th scope="row">Clear Drive</th><td>After confirmation, deletes the TXT files directly inside Transcripts. Other files and device status are kept.</td></tr>
+        </tbody></table>
+        <p>COMPLETE.txt is assembled during import from the saved text files in chronological order. The imported individual text copies and COMPLETE.txt include filename headings above their text.</p>
+      </section>
+      <section aria-labelledby="guidePrivacy">
+        <h3 id="guidePrivacy">Privacy view and closing the app</h3>
+        <p>The small green button switches to a static Translator screen. Use the adjacent field and your privacy return code to switch back. Its example buttons do not control the real app.</p>
+        <p>Privacy view and this guide only change what is visible. Recording, email and device commands, transcription, automatic restart and OneDrive uploads continue behind them.</p>
+        <p>Keep the tab open until recording and processing have finished. Closing or reloading can interrupt recording and unfinished jobs; history does not preserve the recorded audio.</p>
+      </section>
+      <section aria-labelledby="guideHelp">
+        <h3 id="guideHelp">If something does not work</h3>
+        <ul>
+          <li><strong>No remote Start:</strong> check the target tab is connected and recently seen, enable audio on that computer, and allow microphone access when asked.</li>
+          <li><strong>No email action:</strong> check Link, the self-addressed sender and recipient, the empty subject and the exact body command.</li>
+          <li><strong>Transcription failed:</strong> check the Soniox key and connection. The most recently processed audio stays selected for a manual retry while this tab remains open.</li>
+          <li><strong>Automatic upload failed:</strong> the transcript remains in the output field. Reconnect Microsoft if needed, then use EX.Drive to save a copy.</li>
+          <li><strong>Download prompt:</strong> the browser may ask before saving a local file. The automatic transcription workflow does not wait for that approval.</li>
+        </ul>
+      </section>
+    </div>
+  </dialog>
   <dialog id="driveImportDialog" class="drive-import-dialog" aria-labelledby="driveImportTitle">
     <button id="driveImportClose" class="drive-import-close" type="button" aria-label="Close import options">×</button>
     <h2 id="driveImportTitle">Import from OneDrive</h2>

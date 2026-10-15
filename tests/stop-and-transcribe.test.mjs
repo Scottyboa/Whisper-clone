@@ -7,6 +7,7 @@ import { parseCommand, MailControl } from '../js/graph.mjs';
 import { transcribeFile as realTranscribe } from '../js/soniox.mjs';
 import * as audio from '../js/audio.mjs';
 import { createDriveImportPrompt } from '../js/drive-import-prompt.mjs';
+import { AppGuide } from '../js/app-guide.mjs';
 
 const account = { homeAccountId: 'recording-account' };
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -50,7 +51,7 @@ function harness({ key = 'soniox-key', speech = true, timed = false, transcribe,
   }
   const context = vm.createContext({
     ...audio, download: (blob,name) => { downloads.push({blob,name}); if(downloadError)throw new Error('download blocked'); }, Recorder, MailControl: Mail, TranscriptDrive: Drive,
-    PrivacyView: class {}, File, createDriveImportPrompt, DeviceControl:Devices, DevicesPanel:class{dispose(){}},createAbortPrompt:()=>async()=>abortConfirmed,
+    PrivacyView: class {}, AppGuide, File, createDriveImportPrompt, DeviceControl:Devices, DevicesPanel:class{dispose(){}},createAbortPrompt:()=>async()=>abortConfirmed,
     transcribeFile: async (...args) => { transcriptions.push(args); return transcribe ? transcribe(...args) : 'Speaker 1: Hello\n\nSpeaker 2: Hi'; },
     sessionStorage: {getItem: name => name.endsWith('soniox-key') ? key : null, setItem() {}, removeItem() {}},
     document: {getElementById:el,querySelector:makeElement,createElement:makeElement,createTextNode:text=>({text}),addEventListener() {}},
@@ -63,6 +64,20 @@ const commandMail = (overrides={}) => ({id:'command-id', subject:'', body:{conte
   from:{emailAddress:{address:'self@example.com'}}, sender:{emailAddress:{address:'self@example.com'}},
   toRecipients:[{emailAddress:{address:'self@example.com'}}], receivedDateTime:'2026-10-15T08:00:00Z', ...overrides});
 const parse = message => parseCommand(message,new Set(['self@example.com']),Date.parse('2026-10-15T07:59:00Z'),Date.parse('2026-10-15T08:00:10Z'));
+
+test('the guide opens during recording and transcription without changing either workflow',async()=>{
+  const gate=deferred(),h=harness({transcribe:()=>gate.promise});
+  await h.mail.onCommand('start');await h.mail.onCommand('stop-and-transcribe');await tick();
+  const commands=[...h.commands];
+  h.el('guideCode').value=String.fromCharCode(0x31);await h.el('guide').listeners.get('click')();
+  assert.equal(h.el('guideDialog').open,true);assert.equal(h.recorder.state,'recording');
+  assert.deepEqual(h.commands,commands);assert.equal(h.transcriptions.length,1);assert.equal(h.uploads.length,0);
+  gate.resolve('Transcript completed while reading the guide');await tick();
+  assert.equal(h.uploads.length,1);assert.equal(h.el('guideDialog').open,true);
+  assert.equal(h.recorder.state,'recording');assert.deepEqual(h.commands,commands);
+  h.el('guideClose').listeners.get('click')();assert.equal(h.el('guideDialog').open,false);
+  assert.equal(h.recorder.state,'recording');assert.equal(h.mail.active,true);
+});
 
 test('new exact command accepts whitespace/case and preserves self-sender, blank-subject and age checks', () => {
   assert.equal(parse(commandMail()),'stop-and-transcribe');

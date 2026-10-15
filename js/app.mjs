@@ -8,6 +8,7 @@ import { loadGoogle, importSonioxKey } from './drive.mjs';
 import { transcribeFile } from './soniox.mjs?v=20261015-clock1';
 import { PrivacyView } from './privacy-view.mjs?v=20261014-demo1';
 import { TranscriptDrive } from './transcript-drive.mjs?v=20261015-import1';
+import { AppGuide } from './app-guide.mjs?v=20261015-guide1';
 
 // MSAL's parent window consumes its popup response. Do not start a second
 // recorder, alter the URL, or consume the authorization code in this popup.
@@ -16,6 +17,7 @@ if (!callbackPopup) bootstrap();
 
 function bootstrap() {
   const $ = id => document.getElementById(id);
+  new AppGuide({dialog:$('guideDialog'),button:$('guide'),code:$('guideCode'),close:$('guideClose')});
   const KEY = 'whisper-clone.soniox-key', HISTORY = 'whisper-clone.recordings';
   let apiKey = '', history = [], file = null, transcribing = false, linking = false;
   let wakeLock = null, wakeGeneration = 0, importBusy = false;
