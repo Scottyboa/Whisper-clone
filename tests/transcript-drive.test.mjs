@@ -96,7 +96,7 @@ test('existing folder is reused; a racing folder creation is resolved without cr
   assert.equal(h.calls.filter(c => c.method === 'PUT').length, 1);
 });
 
-test('ZIP copies the full hierarchy byte-for-byte and combines text chronologically', async () => {
+test('ZIP titles text copies, preserves binary files and combines text chronologically', async () => {
   const late = file('late', '2026-10-14_12-00.txt', folder.id, {createdDateTime:'2026-10-14T12:00:00Z'});
   const early = file('early', '2026-10-14_10-00.txt');
   const sub = { id: 'sub', name: 'Subfolder', folder: {}, parentReference: { id: folder.id } };
@@ -107,25 +107,25 @@ test('ZIP copies the full hierarchy byte-for-byte and combines text chronologica
   const result = await h.drive.exportZip();
   assert.equal(result.count,3);
   const zip = await JSZip.loadAsync(await result.blob.arrayBuffer(), {checkCRC32:true});
-  assert.equal(await zip.file('Transcripts/2026-10-14_10-00.txt').async('string'),'First\n日本語');
-  assert.equal(await zip.file('Transcripts/Subfolder/nested.txt').async('string'),'Second');
+  assert.equal(await zip.file('Transcripts/2026-10-14_10-00.txt').async('string'),'2026-10-14_10-00.txt\n\nFirst\n日本語');
+  assert.equal(await zip.file('Transcripts/Subfolder/nested.txt').async('string'),'nested.txt\n\nSecond');
   assert.deepEqual([...await zip.file('Transcripts/image.bin').async('uint8array')],[0,1,254,255]);
-  assert.equal(await zip.file('Transcripts/COMPLETE.txt').async('string'),'text 1:\n"First\n日本語"\n\n--\n\ntext 2:\n"Second"\n\n--\n\ntext 3:\n"Third"');
+  assert.equal(await zip.file('Transcripts/COMPLETE.txt').async('string'),'COMPLETE.txt\n\n2026-10-14_10-00.txt\n\nFirst\n日本語\n\n--\n\nnested.txt\n\nSecond\n\n--\n\n2026-10-14_12-00.txt\n\nThird');
   assert.equal(h.calls.filter(c=>c.method!=='GET').length,0);
 });
 
 test('source COMPLETE.txt is preserved rather than silently overwritten in ZIP', async () => {
   const h = harness({files:[file('complete','COMPLETE.txt'),file('reserved','COMPLETE-original-1.txt')],contents:{complete:'old',reserved:'keep'}});
   const {blob}=await h.drive.exportZip(); const zip=await JSZip.loadAsync(await blob.arrayBuffer());
-  assert.equal(await zip.file('Transcripts/COMPLETE-original-2.txt').async('string'),'old');
-  assert.equal(await zip.file('Transcripts/COMPLETE-original-1.txt').async('string'),'keep');
+  assert.equal(await zip.file('Transcripts/COMPLETE-original-2.txt').async('string'),'COMPLETE-original-2.txt\n\nold');
+  assert.equal(await zip.file('Transcripts/COMPLETE-original-1.txt').async('string'),'COMPLETE-original-1.txt\n\nkeep');
   assert.match(await zip.file('Transcripts/COMPLETE.txt').async('string'),/old/);
 });
 
 test('file downloads request default metadata so OneDrive can include its download annotation', async () => {
   const h=harness({files:[file('text','a.txt')],contents:{text:'Saved transcript'}});
   const {blob}=await h.drive.exportZip();const zip=await JSZip.loadAsync(await blob.arrayBuffer());
-  assert.equal(await zip.file('Transcripts/a.txt').async('string'),'Saved transcript');
+  assert.equal(await zip.file('Transcripts/a.txt').async('string'),'a.txt\n\nSaved transcript');
   const metadata=h.calls.find(c=>c.url.pathname.endsWith('/items/text'));
   assert.equal(metadata.url.search,'');
 });
@@ -156,13 +156,13 @@ test('COMPLETE.txt sorts timestamps correctly with different fractional seconds 
     file('early','b.txt',folder.id,{createdDateTime:'2026-10-14T12:00:00+02:00'})
   ],contents:{early:'early',late:'late'}});
   const {blob}=await h.drive.exportZip();const zip=await JSZip.loadAsync(await blob.arrayBuffer());
-  assert.equal(await zip.file('Transcripts/COMPLETE.txt').async('string'),'text 1:\n"early"\n\n--\n\ntext 2:\n"late"');
+  assert.equal(await zip.file('Transcripts/COMPLETE.txt').async('string'),'COMPLETE.txt\n\nb.txt\n\nearly\n\n--\n\na.txt\n\nlate');
 });
 
-test('empty or missing folder produces an empty COMPLETE.txt without creating Transcripts', async () => {
+test('empty or missing folder produces a titled COMPLETE.txt without creating Transcripts', async () => {
   const h=harness({missing:true});const {blob,count}=await h.drive.exportZip();
   const zip=await JSZip.loadAsync(await blob.arrayBuffer());
-  assert.equal(count,0);assert.equal(await zip.file('Transcripts/COMPLETE.txt').async('string'),'');
+  assert.equal(count,0);assert.equal(await zip.file('Transcripts/COMPLETE.txt').async('string'),'COMPLETE.txt\n\n');
   assert.equal(h.calls.filter(c=>c.method!=='GET').length,0);
 });
 

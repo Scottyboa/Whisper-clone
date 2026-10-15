@@ -4,7 +4,7 @@ import { MailControl } from './graph.mjs?v=20261015-auto1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';
 import { transcribeFile } from './soniox.mjs?v=20261015-clock1';
 import { PrivacyView } from './privacy-view.mjs?v=20261014-demo1';
-import { TranscriptDrive } from './transcript-drive.mjs?v=20261015-auto1';
+import { TranscriptDrive } from './transcript-drive.mjs?v=20261015-titles1';
 
 // MSAL's parent window consumes its popup response. Do not start a second
 // recorder, alter the URL, or consume the authorization code in this popup.

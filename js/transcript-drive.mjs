@@ -201,14 +201,19 @@ export class TranscriptDrive {
         } else if (item.file) {
           onProgress(`Downloading ${item.name}…`);
           const bytes = await this.fileBytes(token, item, folderId);
-          archiveRoot.file(path, bytes);
-          if (isText(item)) texts.push({ path, created: Date.parse(item.createdDateTime) || 0, text: new TextDecoder().decode(bytes) });
+          if (isText(item)) {
+            // Titles are added only to the downloaded copies. Use the exported
+            // filename, including any rename that preserves a source COMPLETE.txt.
+            const text = `${name}\n\n${new TextDecoder().decode(bytes)}`;
+            archiveRoot.file(path, text);
+            texts.push({ path, created: Date.parse(item.createdDateTime) || 0, text });
+          } else { archiveRoot.file(path, bytes); }
         } else { throw new Error('The Transcripts folder contains an unsupported OneDrive item.'); }
       }
     };
     if (folder) await visit(folder.id);
     texts.sort((a, b) => a.created - b.created || a.path.localeCompare(b.path));
-    archiveRoot.file('COMPLETE.txt', texts.map((entry, index) => `text ${index + 1}:\n"${entry.text}"`).join('\n\n--\n\n'));
+    archiveRoot.file('COMPLETE.txt', `COMPLETE.txt\n\n${texts.map(entry => entry.text).join('\n\n--\n\n')}`);
     onProgress('Creating ZIP…');
     const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
     return { blob, name: `${TRANSCRIPT_FOLDER}_${uploadFilename(this.now()).replace(/\.txt$/, '')}.zip`, count: texts.length };
