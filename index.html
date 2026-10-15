@@ -6,12 +6,12 @@
   <meta name="referrer" content="no-referrer">
   <title>Whisper-clone</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="style.css?v=20261014-drive1">
+  <link rel="stylesheet" href="style.css?v=20261015-devices1">
   <script defer src="vendor/ort/ort.min.js"></script>
   <script defer src="vendor/vad/bundle.min.js"></script>
   <script defer src="vendor/msal/msal-browser.min.js"></script>
   <script defer src="vendor/jszip/jszip.min.js"></script>
-  <script type="module" src="js/app.mjs?v=20261015-restart1"></script>
+  <script type="module" src="js/app.mjs?v=20261015-devices1"></script>
 </head>
 <body>
   <div class="privacy-controls">
@@ -77,6 +77,8 @@
         <div class="remote-controls">
           <span id="linkStatus" class="small-status" role="status">Not linked</span>
           <button id="link" type="button">Link</button>
+          <button id="devices" type="button">Devices</button>
+          <span id="devicesSummary" class="small-status" role="status">Devices not connected</span>
           <label class="switch"><input id="awake" type="checkbox"><span>Keep awake</span></label>
           <span id="awakeStatus" class="small-status" role="status">Off</span>
         </div>
@@ -88,6 +90,7 @@
           <button id="start" class="primary" type="button">Start</button>
           <button id="pause" type="button" disabled>Pause</button>
           <button id="stop" type="button" disabled>Stop</button>
+          <button id="abort" class="danger" type="button" disabled>Abort</button>
         </div>
       </section>
       <section class="transcript-panel" aria-label="File transcription">
@@ -117,6 +120,26 @@
       </section>
     </main>
   </div>
+  <dialog id="abortDialog" aria-labelledby="abortQuestion">
+    <p id="abortQuestion">Are you sure you want to abort?</p>
+    <div class="dialog-buttons"><button id="abortNo" type="button">No</button><button id="abortYes" class="danger" type="button">Yes, discard</button></div>
+  </dialog>
+  <dialog id="devicesDialog" class="devices-dialog" aria-labelledby="devicesTitle">
+    <div class="devices-heading"><h2 id="devicesTitle">Devices</h2><button id="devicesClose" type="button">Close</button></div>
+    <div class="devices-setup"><label for="devicesName">This tab’s name</label><input id="devicesName" type="text" maxlength="60" autocomplete="off">
+      <button id="devicesConnect" type="button">Connect this tab</button><button id="devicesDisconnect" type="button" disabled>Disconnect</button>
+    </div>
+    <p class="devices-help">Connect each tab using the same Microsoft account. Closing this window leaves the tab connected. Closing the browser tab ends its connection.</p>
+    <div class="devices-heading"><span id="devicesStatus" role="status">Not connected</span><button id="devicesRefresh" type="button" disabled>Refresh</button></div>
+    <div class="devices-table-wrap"><table class="devices-table"><thead><tr><th>Tab</th><th>Status</th><th>Last seen</th></tr></thead><tbody id="deviceRows"></tbody></table></div>
+    <p id="devicesEmpty" class="devices-help">Connect this tab, then Refresh to see available tabs.</p>
+    <div class="device-actions">
+      <button id="device-start" type="button" disabled>Start</button><button id="device-pause" type="button" disabled>Pause</button><button id="device-resume" type="button" disabled>Resume</button>
+      <button id="device-stop" type="button" disabled>Stop</button><button id="device-stop-and-transcribe" type="button" disabled>Stop and transcribe</button><button id="device-abort" class="danger" type="button" disabled>Abort</button>
+    </div>
+    <p class="devices-help">Select a recently seen tab before sending a command. Stop and transcribe starts a fresh recording while processing the previous one. Commands expire after 60 seconds.</p>
+    <div id="devicesMessage" class="devices-message" role="status"></div><div id="devicesResults" class="devices-results" aria-live="polite"></div>
+  </dialog>
   <dialog id="importDialog">
     <form id="importForm">
       <p>Do you wish to import from Drive?</p>

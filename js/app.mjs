@@ -1,10 +1,12 @@
-import { Recorder } from './recorder.mjs?v=20261015-clock1';
+import { Recorder } from './recorder.mjs?v=20261015-devices1';
+import { DeviceControl } from './device-control.mjs?v=20261015-devices1';
+import { DevicesPanel, createAbortPrompt } from './devices-panel.mjs?v=20261015-devices1';
 import { clock, duration, dateStamp, timeStamp, recordingName, recordingTranscriptName, download } from './audio.mjs?v=20261015-clock1';
-import { MailControl } from './graph.mjs?v=20261015-auto1';
+import { MailControl } from './graph.mjs?v=20261015-devices1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';
 import { transcribeFile } from './soniox.mjs?v=20261015-clock1';
 import { PrivacyView } from './privacy-view.mjs?v=20261014-demo1';
-import { TranscriptDrive } from './transcript-drive.mjs?v=20261015-titles1';
+import { TranscriptDrive } from './transcript-drive.mjs?v=20261015-devices1';
 
 // MSAL's parent window consumes its popup response. Do not start a second
 // recorder, alter the URL, or consume the authorization code in this popup.
@@ -28,13 +30,28 @@ function bootstrap() {
   } catch { message('Session storage is unavailable.', true); }
 
   const recorder = new Recorder({ onChange: updateRecorder });
-  const mail = new MailControl({ onCommand: runCommand, onStatus: status => {
+  const mail = new MailControl({ onCommand: runCommand, preserveAuth:()=>devices.active, onStatus: status => {
     $('linkStatus').textContent = status;
     $('link').textContent = mail.active ? 'Unlink' : 'Link';
   } });
   // Initialize MSAL while idle; Link's popup can then open promptly on click.
   mail.client().catch(() => {});
   const drive = new TranscriptDrive({ client: () => mail.client(), linkedAccount: () => mail.account });
+  const confirmAbort = createAbortPrompt({dialog:$('abortDialog'),text:$('abortQuestion'),yes:$('abortYes'),no:$('abortNo')});
+  let deviceName = 'This computer';
+  try { deviceName = localStorage.getItem('whisper-clone.device-name') || deviceName; } catch {}
+  let panel;
+  const devices = new DeviceControl({drive,execute:runCommand,name:deviceName,
+    getStatus:()=>({state:recorder.state,startedAt:recorder.startedAt,transcribing,uploading:driveBusy,
+      audioReady:!!recorder.context && recorder.context.state !== 'closed'}),onChange:()=>panel?.render()});
+  async function connectDevices() {
+    const audio = recorder.unlock();
+    await Promise.all([audio,devices.connect({account:mail.account || undefined})]);
+  }
+  panel = new DevicesPanel({devices,connect:connectDevices,confirmAbort,$});
+  // Cached, already-consented sessions can announce their presence silently.
+  // Start still requires audio to have been enabled locally on this page.
+  devices.connect({interactive:false}).catch(()=>{});
 
   new PrivacyView({
     view: $('privacyView'), controls: document.querySelector('.privacy-controls'),
@@ -43,13 +60,14 @@ function bootstrap() {
 
   function updateRecorder() {
     const state = recorder.state;
-    const labels = { idle: 'Ready', starting: 'Starting…', recording: 'Recording', pausing: 'Pausing…', paused: 'Paused', resuming: 'Resuming…', stopping: 'Finishing…', error: 'Audio error' };
+    const labels = { idle: 'Ready', starting: 'Starting…', recording: 'Recording', pausing: 'Pausing…', paused: 'Paused', resuming: 'Resuming…', stopping: 'Finishing…', aborting: 'Discarding…', error: 'Audio error' };
     $('recordStatus').textContent = labels[state];
     $('dot').classList.toggle('live', state === 'recording');
     $('dot').classList.toggle('paused', state === 'paused');
     $('start').disabled = state !== 'idle';
     $('pause').disabled = !['recording', 'paused'].includes(state);
     $('stop').disabled = !['recording', 'paused', 'error'].includes(state);
+    $('abort').disabled = ['idle','aborting'].includes(state);
     $('pause').textContent = state === 'paused' ? 'Resume' : 'Pause';
   }
   function updateKey() {
@@ -133,9 +151,12 @@ function bootstrap() {
     try {
       const automatic = action === 'stop-and-transcribe';
       // Snapshot configuration at command receipt, before Stop drains the VAD.
-      const key = apiKey, account = mail.account;
+      const key = apiKey, account = mail.account || devices.account;
       const result = await recorder.command(automatic ? 'stop' : action);
-      if (!result) return;
+      if (!result) {
+        if (action === 'abort') { $('timer').textContent = clock(0); message('Recording discarded.'); }
+        return;
+      }
       const { entry, blob } = result;
       history.push(entry); renderHistory();
       // Metadata only. No audio, transcript, account address, or message body.
@@ -179,12 +200,15 @@ function bootstrap() {
   });
   $('pause').addEventListener('click', () => runCommand(recorder.state === 'paused' ? 'resume' : 'pause').catch(() => {}));
   $('stop').addEventListener('click', () => runCommand('stop').catch(() => {}));
+  $('abort').addEventListener('click', async () => {
+    if (await confirmAbort()) runCommand('abort').catch(() => {});
+  });
   setInterval(() => {
     if (recorder.startedAt != null) $('timer').textContent = clock(Date.now() - recorder.startedAt);
   }, 250);
 
   $('link').addEventListener('click', async () => {
-    if (mail.active) { mail.unlink(); return; }
+    if (mail.active) { mail.unlink({clearCache:!devices.active}); return; }
     if (linking) return;
     linking = true; $('link').disabled = true;
     try {
@@ -192,7 +216,10 @@ function bootstrap() {
       const ready = recorder.unlock();
       const linked = mail.link();
       await Promise.all([ready, linked]);
-    } catch (error) { mail.unlink(); message(error.message || 'Microsoft sign-in failed.', true); }
+      if (devices.active && devices.account?.homeAccountId !== mail.account?.homeAccountId) devices.disconnect();
+      try { await devices.connect({interactive:false,account:mail.account}); }
+      catch (error) { message(`Email linked. Devices: ${error.message}`,true); }
+    } catch (error) { mail.unlink({clearCache:!devices.active}); message(error.message || 'Microsoft sign-in failed.', true); }
     finally { linking = false; $('link').disabled = false; }
   });
 
@@ -306,7 +333,7 @@ function bootstrap() {
     if (recorder.state !== 'idle' || transcribing || driveBusy) { event.preventDefault(); event.returnValue = ''; }
   });
   window.addEventListener('pagehide', () => {
-    mail.unlink(); recorder.dispose(); wakeGeneration++;
+    devices.disconnect(); panel.dispose(); mail.unlink(); recorder.dispose(); wakeGeneration++;
     wakeLock?.release().catch(() => {}); file = null;
   });
   window.addEventListener('pageshow', event => { if (event.persisted) location.reload(); });

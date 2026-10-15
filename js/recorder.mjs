@@ -9,7 +9,7 @@ export class Recorder {
     this.startedAt = null; this.context = null; this.mic = null;
     this.acceptingAudio = false; this.disposed = false;
     this.queue = Promise.resolve();
-    this.timingSegments = []; this.timingValid = true;
+    this.timingSegments = []; this.timingValid = true; this.discardGeneration = 0;
   }
 
   // Called synchronously by Start/Link, while the user's click can unlock audio.
@@ -65,18 +65,25 @@ export class Recorder {
 
   setState(value) { this.state = value; this.onChange(this); }
   command(action) {
-    const job = this.queue.then(() => this.perform(action));
+    if (action === 'abort') {
+      // Invalidate an in-flight Start/Stop immediately, before its queued Abort.
+      this.discardGeneration++; this.acceptingAudio = false;
+      this.mic?.stream?.getTracks().forEach(track => track.stop());
+    }
+    const generation = this.discardGeneration;
+    const job = this.queue.then(() => this.perform(action, generation));
     this.queue = job.catch(() => {});
     return job;
   }
   async beginCapture() {
+    const generation = this.discardGeneration;
     this.acceptingAudio = true;
     this.mic = await this.createVAD({
       ...VAD_RULES, captureNow: this.now,
       onSpeechStart: () => {}, onVADMisfire: () => {},
       onFrameProcessed: () => {},
       onSpeechEnd: (audio, timing) => {
-        if (!this.acceptingAudio || this.disposed || !audio.length) return;
+        if (!this.acceptingAudio || this.disposed || generation !== this.discardGeneration || !audio.length) return;
         if (Array.isArray(timing) && timing.length) {
           for (const [offset, length, epoch] of timing) this.timingSegments.push([this.samples + offset, length, epoch]);
         } else this.timingValid = false;
@@ -94,8 +101,20 @@ export class Recorder {
     await this.mic.destroy();
     this.mic = null;
   }
-  async perform(action) {
+  async perform(action, generation = this.discardGeneration) {
     if (this.disposed) throw new Error('This page is closing.');
+    if (action !== 'abort' && generation !== this.discardGeneration) return;
+    if (action === 'abort') {
+      this.setState('aborting'); this.acceptingAudio = false;
+      try {
+        this.mic?.stream?.getTracks().forEach(track => track.stop());
+        await this.mic?.destroy();
+      } finally {
+        this.mic = null; this.parts = []; this.samples = 0; this.startedAt = null;
+        this.timingSegments = []; this.timingValid = true; this.setState('idle');
+      }
+      return;
+    }
     if (action === 'start') {
       if (this.state !== 'idle') return;
       this.parts = []; this.samples = 0; this.startedAt = null;
@@ -104,24 +123,27 @@ export class Recorder {
       this.setState('starting');
       try {
         await this.beginCapture();
+        if (generation !== this.discardGeneration) return;
         this.startedAt = this.now(); this.setState('recording');
       } catch (error) {
-        this.acceptingAudio = false; this.setState('idle'); throw error;
+        this.acceptingAudio = false;
+        if (generation !== this.discardGeneration) return;
+        this.setState('idle'); throw error;
       }
       return;
     }
     if (action === 'pause') {
       if (this.state !== 'recording') return;
       this.setState('pausing');
-      try { await this.secureTail(); this.setState('paused'); }
-      catch (error) { this.setState('error'); throw error; }
+      try { await this.secureTail(); if (generation === this.discardGeneration) this.setState('paused'); }
+      catch (error) { if (generation !== this.discardGeneration) return; this.setState('error'); throw error; }
       return;
     }
     if (action === 'resume') {
       if (this.state !== 'paused') return;
       this.setState('resuming');
-      try { await this.beginCapture(); this.setState('recording'); }
-      catch (error) { this.acceptingAudio = false; this.setState('paused'); throw error; }
+      try { await this.beginCapture(); if (generation === this.discardGeneration) this.setState('recording'); }
+      catch (error) { this.acceptingAudio = false; if (generation !== this.discardGeneration) return; this.setState('paused'); throw error; }
       return;
     }
     if (action === 'stop') {
@@ -129,7 +151,8 @@ export class Recorder {
       const endedAt = this.now();
       this.setState('stopping');
       try { await this.secureTail(); }
-      catch (error) { this.setState('error'); throw error; }
+      catch (error) { if (generation !== this.discardGeneration) return; this.setState('error'); throw error; }
+      if (generation !== this.discardGeneration) return;
       const entry = {
         id: crypto.randomUUID(), startedAt: this.startedAt, endedAt,
         elapsedMs: Math.max(0, endedAt - this.startedAt), audioMs: this.samples / SAMPLE_RATE * 1000,

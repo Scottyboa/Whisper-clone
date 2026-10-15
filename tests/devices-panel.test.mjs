@@ -1,0 +1,66 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { DevicesPanel, createAbortPrompt } from '../js/devices-panel.mjs';
+function element(){return {
+  textContent:'',value:'',disabled:false,hidden:false,open:false,children:[],listeners:{},attributes:{},classList:{add(){},remove(){}},
+  addEventListener(type,fn){(this.listeners[type]||=[]).push(fn);},
+  async fire(type,event={}){for(const fn of this.listeners[type]||[])await fn(event);},
+  append(...nodes){this.children.push(...nodes);},replaceChildren(){this.children=[];},setAttribute(key,value){this.attributes[key]=value;},
+  showModal(){this.open=true;},close(){this.open=false;this.fire('close');},focus(){this.focused=true;},
+};}
+function setup({confirmAbort=async()=>true}={}){
+  const elements=new Map(),$=id=>{if(!elements.has(id))elements.set(id,element());return elements.get(id);};
+  const original=globalThis.document;globalThis.document={createElement:element};
+  const rows=[{sessionId:'00000000-0000-4000-8000-111111111111',name:'Work',local:true,state:'idle',audioReady:true,at:1000},
+    {sessionId:'00000000-0000-4000-8000-222222222222',name:'Home',local:false,state:'recording',audioReady:true,at:1000}];
+  const sent=[],devices={name:'Work',active:true,status:'Connected',rows,pending:new Map(),setName(name){this.name=name;},
+    disconnect(){this.active=false;},async refresh(){return this.rows;},async send(target,action){sent.push({target,action});}};
+  const panel=new DevicesPanel({devices,$,now:()=>2000,connect:async()=>{devices.active=true;},confirmAbort});
+  return {$,panel,devices,sent,restore(){panel.dispose();globalThis.document=original;}};
+}
+
+test('Devices panel IDs exist in the real HTML; opening/closing the panel does not disconnect a tab',async()=>{
+  const h=setup();try{
+    await h.$('devices').fire('click');assert.equal(h.$('devicesDialog').open,true);
+    await h.$('devicesClose').fire('click');assert.equal(h.$('devicesDialog').open,false);assert.equal(h.devices.active,true);
+    const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+    for(const id of ['devices','devicesDialog','devicesName','devicesStatus','devicesSummary','deviceRows','devicesConnect','devicesDisconnect','devicesRefresh','devicesEmpty','devicesMessage','devicesResults','device-start','device-pause','device-resume','device-stop','device-stop-and-transcribe','device-abort'])assert.ok(html.includes(`id="${id}"`),id);
+    assert.ok(html.indexOf('id="abort"')>html.indexOf('id="stop"'));
+  }finally{h.restore();}
+});
+
+test('selecting a row enables appropriate controls and only sends to that selected tab',async()=>{
+  const h=setup();try{
+    assert.equal(h.$('device-stop').disabled,true);
+    const homeButton=h.$('deviceRows').children[1].children[0].children[0];await homeButton.fire('click');
+    assert.equal(h.$('device-stop').disabled,false);assert.equal(h.$('device-start').disabled,true);
+    await h.$('device-stop').fire('click');assert.deepEqual(h.sent,[{target:h.devices.rows[1].sessionId,action:'stop'}]);assert.equal(h.devices.active,true);
+    h.devices.rows[1].at=-100000;h.panel.render();assert.equal(h.$('device-abort').disabled,true);
+  }finally{h.restore();}
+});
+
+test('Abort cancellation sends nothing; a confirmation keeps its original selected target',async()=>{
+  const h=setup({confirmAbort:async()=>false});try{
+    h.panel.selected=h.devices.rows[1].sessionId;await h.panel.command('abort');assert.equal(h.sent.length,0);
+    let resolve;h.panel.confirmAbort=()=>new Promise(r=>resolve=r);
+    const task=h.panel.command('abort');h.panel.selected=h.devices.rows[0].sessionId;resolve(true);await task;
+    assert.deepEqual(h.sent,[{target:h.devices.rows[1].sessionId,action:'abort'}]);
+  }finally{h.restore();}
+});
+
+test('urgent Abort stays enabled while Start is awaiting acknowledgement',()=>{
+  const h=setup();try{
+    const row=h.devices.rows[1];row.state='starting';h.panel.selected=row.sessionId;
+    h.devices.pending.set('pending',{target:row.sessionId,action:'start',expiresAt:60000});h.panel.render();
+    assert.equal(h.$('device-abort').disabled,false);assert.equal(h.$('device-start').disabled,true);
+  }finally{h.restore();}
+});
+
+test('confirmation resolves Yes, No, Escape and close without running a recording command',async()=>{
+  const dialog=element(),text=element(),yes=element(),no=element(),ask=createAbortPrompt({dialog,text,yes,no});
+  const first=ask();assert.equal(dialog.open,true);assert.equal(no.focused,true);await no.fire('click');assert.equal(await first,false);
+  const second=ask('Home PC');assert.match(text.textContent,/Home PC/);await yes.fire('click');assert.equal(await second,true);
+  const third=ask();await dialog.fire('cancel',{preventDefault(){}});assert.equal(await third,false);
+  const fourth=ask();dialog.close();assert.equal(await fourth,false);
+});

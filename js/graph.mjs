@@ -24,8 +24,8 @@ export function parseCommand(message, ownAddresses, linkedAt, now = Date.now()) 
 }
 
 export class MailControl {
-  constructor({ onStatus = () => {}, onCommand, auth, fetcher = fetch, now = Date.now } = {}) {
-    this.onStatus = onStatus; this.onCommand = onCommand;
+  constructor({ onStatus = () => {}, onCommand, auth, fetcher = fetch, now = Date.now, preserveAuth = () => false } = {}) {
+    this.onStatus = onStatus; this.onCommand = onCommand; this.preserveAuth = preserveAuth;
     // Native Window.fetch rejects a MailControl receiver ("Illegal invocation").
     // Keep the browser receiver when storing it as an instance method.
     this.auth = auth; this.fetcher = fetcher.bind(globalThis); this.now = now;
@@ -144,13 +144,13 @@ export class MailControl {
       this.onStatus('Reconnecting…');
     } finally { this.schedule(delay, generation); }
   }
-  unlink() {
+  unlink({ clearCache = true } = {}) {
     this.active = false; this.generation++;
     clearTimeout(this.timer); this.abort?.abort(); this.abort = null;
     this.releaseLock?.(); this.releaseLock = null;
     this.account = null; this.addresses.clear(); this.seen.clear();
     this.onStatus('Not linked');
-    // Clear this app's MSAL tokens/accounts, without clearing any other app.
-    this.clientPromise?.then(auth => auth.clearCache()).catch(() => {});
+    // Preserve tokens shared with Devices; otherwise clear only this app's cache.
+    if (clearCache && !this.preserveAuth()) this.clientPromise?.then(auth => auth.clearCache()).catch(() => {});
   }
 }

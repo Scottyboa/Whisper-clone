@@ -11,7 +11,7 @@ const account = { homeAccountId: 'recording-account' };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => { resolve=a; reject=b; }); return {promise,resolve,reject}; };
 const app = readFileSync(new URL('../js/app.mjs', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '');
-function harness({ key = 'soniox-key', speech = true, timed = false, transcribe, upload, onCapture, onDrain, downloadError = false } = {}) {
+function harness({ key = 'soniox-key', speech = true, timed = false, transcribe, upload, onCapture, onDrain, downloadError = false, abortConfirmed = true } = {}) {
   const elements = new Map(), downloads = [], transcriptions = [], uploads = [], commands = [], captures = [];
   const makeElement = () => ({
     value: '', checked: false, disabled: false, textContent: '', children: [], listeners: new Map(),
@@ -20,7 +20,7 @@ function harness({ key = 'soniox-key', speech = true, timed = false, transcribe,
     append(...nodes) { this.children.push(...nodes); }, replaceChildren() { this.children=[]; },
   });
   const el = id => { if (!elements.has(id)) elements.set(id,makeElement()); return elements.get(id); };
-  let mail, recorder, now = new Date(2026,9,15,10,0).getTime();
+  let mail, recorder, devices, now = new Date(2026,9,15,10,0).getTime();
   class Recorder extends RealRecorder {
     constructor(options) {
       super({ ...options, now: () => now, createVAD: async callbacks => {
@@ -41,16 +41,20 @@ function harness({ key = 'soniox-key', speech = true, timed = false, transcribe,
     async upload(text, options) { uploads.push({text, options}); return upload ? upload(text,options) : options?.name || 'manual.txt'; }
     async clear(confirm) { return {count:0,cancelled:false}; }
   }
+  class Devices {
+    constructor(options) { Object.assign(this,options);this.active=false;this.account=account;devices=this; }
+    async connect() {} disconnect(){this.active=false;}
+  }
   const context = vm.createContext({
     ...audio, download: (blob,name) => { downloads.push({blob,name}); if(downloadError)throw new Error('download blocked'); }, Recorder, MailControl: Mail, TranscriptDrive: Drive,
-    PrivacyView: class {}, File,
+    PrivacyView: class {}, File, DeviceControl:Devices, DevicesPanel:class{dispose(){}},createAbortPrompt:()=>async()=>abortConfirmed,
     transcribeFile: async (...args) => { transcriptions.push(args); return transcribe ? transcribe(...args) : 'Speaker 1: Hello\n\nSpeaker 2: Hi'; },
     sessionStorage: {getItem: name => name.endsWith('soniox-key') ? key : null, setItem() {}, removeItem() {}},
     document: {getElementById:el,querySelector:makeElement,createElement:makeElement,createTextNode:text=>({text}),addEventListener() {}},
     window: {opener:null,addEventListener() {}}, location: {}, navigator: {}, setInterval() {}, confirm:()=>true,
   });
   vm.runInContext(app,context);
-  return { el, downloads, transcriptions, uploads, commands, captures, recorder, mail, advance: ms => {now+=ms;} };
+  return { el, downloads, transcriptions, uploads, commands, captures, recorder, mail, devices, advance: ms => {now+=ms;} };
 }
 const commandMail = (overrides={}) => ({id:'command-id', subject:'', body:{contentType:'text',content:'stop and transcribe'},
   from:{emailAddress:{address:'self@example.com'}}, sender:{emailAddress:{address:'self@example.com'}},
@@ -251,4 +255,63 @@ test('mailbox Stop after a rotating command stops the new recording and duplicat
   await mail.poll();assert.equal(h.recorder.state,'idle');assert.equal(h.captures.length,2);assert.equal(h.downloads.length,2);
   await mail.poll();assert.equal(h.recorder.state,'idle');assert.equal(h.captures.length,2);
   gate.resolve('text');await tick();assert.equal(h.recorder.state,'idle');
+});
+
+test('Abort discards an active or paused recording without history, downloads or provider work',async()=>{
+  for(const paused of [false,true]){
+    const h=harness();await h.mail.onCommand('start');
+    if(paused)await h.mail.onCommand('pause');
+    await h.devices.execute('abort');await tick();
+    assert.equal(h.recorder.state,'idle');assert.equal(h.recorder.samples,0);assert.equal(h.recorder.parts.length,0);
+    assert.equal(h.recorder.startedAt,null);assert.equal(h.el('history').children.length,0);
+    assert.equal(h.downloads.length,0);assert.equal(h.transcriptions.length,0);assert.equal(h.uploads.length,0);
+    assert.equal(h.mail.active,true);assert.equal(h.captures.length,1);assert.equal(h.el('timer').textContent,'00:00:00');
+    await h.mail.onCommand('start');h.captures[0].onSpeechEnd(new Float32Array(16000));
+    assert.equal(h.recorder.samples,0);assert.equal(h.captures.length,2);
+  }
+});
+
+test('Abort button confirmation cancellation leaves recording unchanged',async()=>{
+  const h=harness({abortConfirmed:false});await h.mail.onCommand('start');
+  await h.el('abort').listeners.get('click')();await tick();
+  assert.equal(h.recorder.state,'recording');assert.equal(h.commands.includes('abort'),false);
+});
+
+test('confirmed Abort during stop-and-transcribe drain discards the tail and cancels restart',async()=>{
+  const gate=deferred(),h=harness({onDrain:()=>gate.promise});await h.mail.onCommand('start');
+  const automatic=h.mail.onCommand('stop-and-transcribe');await tick();
+  const abort=h.devices.execute('abort');gate.resolve();await Promise.all([automatic,abort]);await tick();
+  assert.equal(h.recorder.state,'idle');assert.equal(h.captures.length,1);assert.equal(h.downloads.length,0);
+  assert.equal(h.el('history').children.length,0);assert.equal(h.transcriptions.length,0);
+});
+
+test('Abort queued before a pending Stop begins prevents saving; previous background jobs continue',async()=>{
+  const h=harness();await h.mail.onCommand('start');
+  const stop=h.mail.onCommand('stop'),abort=h.devices.execute('abort');await Promise.all([stop,abort]);
+  assert.equal(h.downloads.length,0);assert.equal(h.el('history').children.length,0);
+  const gate=deferred(),next=harness({transcribe:()=>gate.promise});await next.mail.onCommand('start');
+  await next.mail.onCommand('stop-and-transcribe');await next.devices.execute('abort');
+  gate.resolve('previous recording');await tick();
+  assert.equal(next.recorder.state,'idle');assert.equal(next.downloads.length,1);assert.equal(next.uploads.length,1);
+  assert.equal(next.el('history').children.length,1);assert.equal(next.mail.active,true);
+});
+
+test('Abort during delayed microphone startup stops the newly opened capture without saving',async()=>{
+  const gate=deferred(),h=harness({onCapture:()=>gate.promise});const start=h.mail.onCommand('start');await tick();
+  const abort=h.devices.execute('abort');gate.resolve();await Promise.all([start,abort]);
+  assert.equal(h.recorder.state,'idle');assert.equal(h.recorder.mic,null);assert.equal(h.downloads.length,0);
+});
+
+test('Devices-only recording/transcription uses its connected Microsoft account without email linking',async()=>{
+  const h=harness();h.mail.active=false;h.mail.account=null;
+  await h.devices.execute('start');await h.devices.execute('stop-and-transcribe');await tick();
+  assert.equal(h.recorder.state,'recording');assert.equal(h.uploads.length,1);
+  assert.equal(h.uploads[0].options.account,account);assert.equal(h.mail.active,false);
+});
+
+test('email unlink preserves shared authentication while Devices remains connected',async()=>{
+  let cleared=0;const auth={clearCache:async()=>{cleared++;}};
+  const mail=new MailControl({auth,preserveAuth:()=>true});mail.clientPromise=Promise.resolve(auth);
+  mail.unlink();await tick();assert.equal(cleared,0);assert.equal(mail.active,false);
+  mail.preserveAuth=()=>false;mail.unlink();await tick();assert.equal(cleared,1);
 });

@@ -85,7 +85,10 @@ export class TranscriptDrive {
         response.status === 401 ? 'Microsoft sign-in expired. Try the Drive button again.' :
         response.status === 412 ? 'A file changed during the operation. Try again.' :
         `OneDrive request failed (${response.status}). Try again.`);
-      error.status = response.status; throw error;
+      error.status = response.status;
+      const retry = Number(response.headers.get('Retry-After'));
+      if (response.status === 429 || response.status === 503) error.retryMs = Number.isFinite(retry) && retry > 0 ? retry * 1000 : 30000;
+      throw error;
     }
     return response;
   }
@@ -118,7 +121,7 @@ export class TranscriptDrive {
 
   async children(token, folderId) {
     const endpoint = `${GRAPH}${itemPath(folderId)}/children`;
-    let next = `${endpoint}?$select=id,name,file,folder,remoteItem,parentReference,createdDateTime,eTag&$top=200`;
+    let next = `${endpoint}?$select=id,name,file,folder,remoteItem,parentReference,createdDateTime,lastModifiedDateTime,eTag&$top=200`;
     const result = [], pages = new Set(), ids = new Set();
     while (next) {
       const url = new URL(next);
