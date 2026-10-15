@@ -18,6 +18,7 @@ function bootstrap() {
   let wakeLock = null, wakeGeneration = 0, importBusy = false;
   let driveBusy = false, drivePending = 0, transcriptionPending = 0;
   let driveQueue = Promise.resolve(), transcriptionQueue = Promise.resolve();
+  let commandGeneration = 0;
   const message = (text = '', error = false) => { $('message').textContent = text; $('message').classList.toggle('error', error); };
   try {
     apiKey = sessionStorage.getItem(KEY) || '';
@@ -128,6 +129,7 @@ function bootstrap() {
   }
 
   async function runCommand(action) {
+    const generation = ++commandGeneration;
     try {
       const automatic = action === 'stop-and-transcribe';
       // Snapshot configuration at command receipt, before Stop drains the VAD.
@@ -145,12 +147,29 @@ function bootstrap() {
         catch { message('The WAV download could not be started.', true); }
       } else { message('No speech detected.'); }
       $('timer').textContent = clock(entry.elapsedMs);
-      if (automatic && blob) {
-        if (!key) throw new Error('Recording stopped and WAV download requested. Import a Soniox API key before using stop and transcribe.');
-        const source = new File([blob], recordingName(entry), { type: 'audio/wav' });
-        // Don't await the provider job here: mail polling and further recording
-        // commands must continue throughout transcription and Drive upload.
-        queueTranscription(source, key, true, { entry, account }).catch(() => {});
+      if (automatic) {
+        // Stop has drained the VAD and produced an independent WAV. Start the
+        // next capture now; provider work must never delay or undo the restart.
+        // A newer explicit command received during Stop takes precedence.
+        const restart = generation === commandGeneration ? recorder.command('start').then(() => {
+          if (generation === commandGeneration && recorder.state === 'recording') $('timer').textContent = clock(0);
+          return null;
+        }, error => error) : Promise.resolve(null);
+        let keyError = null;
+        if (blob) {
+          if (!key) keyError = new Error('WAV download requested, but automatic transcription needs a Soniox API key. Use Import Key.');
+          else {
+            const source = new File([blob], recordingName(entry), { type: 'audio/wav' });
+            // Snapshot the completed recording, not the new active capture.
+            queueTranscription(source, key, true, { entry, account }).catch(() => {});
+          }
+        }
+        const restartError = await restart;
+        if (restartError) {
+          if (generation === commandGeneration && recorder.state === 'idle') $('recordStatus').textContent = 'Restart failed — click Start to retry';
+          throw new Error(`The new recording could not start. ${restartError.message || 'Check microphone access.'} ${blob && key ? 'The previous WAV will still be transcribed.' : 'The previous recording was finalized.'}`);
+        }
+        if (keyError) throw keyError;
       }
     } catch (error) { message(error.message || 'Recording failed.', true); throw error; }
   }
