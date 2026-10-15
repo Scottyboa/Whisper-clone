@@ -40,6 +40,19 @@ test('selecting a row enables appropriate controls and only sends to that select
   }finally{h.restore();}
 });
 
+test('an expired selected tab disappears at ten seconds and loses its command controls',async()=>{
+  const h=setup();try{
+    const home=h.devices.rows[1],seen=home.at;h.panel.selected=home.sessionId;
+    h.panel.now=()=>seen+9999;h.panel.render();
+    assert.equal(h.$('deviceRows').children.length,2);assert.equal(h.$('device-stop').disabled,false);
+    h.panel.now=()=>seen+10000;h.panel.render();
+    assert.equal(h.$('deviceRows').children.length,0);assert.equal(h.panel.selected,null);
+    assert.equal(h.$('devicesEmpty').hidden,false);assert.equal(h.$('device-stop').disabled,true);
+    assert.equal(h.devices.active,true);assert.equal(h.$('devicesDisconnect').disabled,false);
+    home.at=h.panel.now();h.panel.render();assert.equal(h.$('deviceRows').children.length,1);
+  }finally{h.restore();}
+});
+
 test('Abort cancellation sends nothing; a confirmation keeps its original selected target',async()=>{
   const h=setup({confirmAbort:async()=>false});try{
     h.panel.selected=h.devices.rows[1].sessionId;await h.panel.command('abort');assert.equal(h.sent.length,0);

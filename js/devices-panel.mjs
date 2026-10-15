@@ -1,4 +1,4 @@
-import { RECENT_MS } from './device-control.mjs?v=20261015-devices2';
+import { RECENT_MS } from './device-control.mjs?v=20261015-devices3';
 const labels = {start:'Start',pause:'Pause',resume:'Resume',stop:'Stop','stop-and-transcribe':'Stop and transcribe',abort:'Abort'};
 const stateLabels = {idle:'Ready',starting:'Starting…',recording:'Recording',pausing:'Pausing…',paused:'Paused',resuming:'Resuming…',stopping:'Finishing…',aborting:'Discarding…',error:'Audio error'};
 export function createAbortPrompt({dialog, text, yes, no}) {
@@ -50,7 +50,7 @@ export class DevicesPanel {
     $('devicesSummary').textContent=devices.active?'Devices connected':'Devices not connected';
     $('devicesConnect').textContent=devices.active?'Enable audio here':'Connect this tab';
     $('devicesConnect').disabled=this.busy;$('devicesDisconnect').disabled=this.busy||!devices.active;$('devicesRefresh').disabled=this.busy||!devices.active;
-    const rows=devices.rows;$('deviceRows').replaceChildren();
+    const rows=devices.rows.filter(row=>this.now()-row.at<RECENT_MS);$('deviceRows').replaceChildren();
     if(!rows.some(row=>row.sessionId===this.selected))this.selected=null;
     for(const row of rows){
       const tr=document.createElement('tr'),name=document.createElement('td'),button=document.createElement('button');
@@ -58,11 +58,11 @@ export class DevicesPanel {
       button.setAttribute('aria-pressed',String(row.sessionId===this.selected));button.className='device-select';
       button.addEventListener('click',()=>{this.selected=row.sessionId;this.render();});name.append(button);tr.append(name);
       const status=document.createElement('td');status.textContent=`${stateLabels[row.state]||row.state}${row.transcribing?' · Transcribing':''}${row.uploading?' · Drive busy':''}${!row.audioReady?' · Enable audio locally':''}`;
-      const seen=document.createElement('td'),age=Math.max(0,this.now()-row.at);seen.textContent=`${Math.floor(age/1000)}s ago${age>RECENT_MS?' · Not recent':''}`;
+      const seen=document.createElement('td'),age=Math.max(0,this.now()-row.at);seen.textContent=`${Math.floor(age/1000)}s ago`;
       if(row.sessionId===this.selected)tr.classList.add('selected');tr.append(status,seen);$('deviceRows').append(tr);
     }
     $('devicesEmpty').hidden=rows.length>0;
-    const row=rows.find(row=>row.sessionId===this.selected),recent=row&&this.now()-row.at<=RECENT_MS;
+    const row=rows.find(row=>row.sessionId===this.selected),recent=!!row;
     const pending=[...devices.pending.values()].some(p=>p.target===this.selected&&!p.expired&&!['completed','failed'].includes(p.result?.status));
     const allowed={start:row?.state==='idle'&&row.audioReady,pause:row?.state==='recording',resume:row?.state==='paused'&&row.audioReady,
       stop:['recording','paused','error'].includes(row?.state),'stop-and-transcribe':['recording','paused','error'].includes(row?.state),abort:row?.state!=='idle'&&row?.state!=='aborting'};

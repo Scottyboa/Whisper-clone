@@ -11,7 +11,7 @@
   <script defer src="vendor/vad/bundle.min.js"></script>
   <script defer src="vendor/msal/msal-browser.min.js"></script>
   <script defer src="vendor/jszip/jszip.min.js"></script>
-  <script type="module" src="js/app.mjs?v=20261015-devices2"></script>
+  <script type="module" src="js/app.mjs?v=20261015-devices3"></script>
 </head>
 <body>
   <div class="privacy-controls">
@@ -140,12 +140,12 @@
     <p class="devices-help">Connect each tab using the same Microsoft account. Closing this window leaves the tab connected. Closing the browser tab ends its connection.</p>
     <div class="devices-heading"><span id="devicesStatus" role="status">Not connected</span><button id="devicesRefresh" type="button" disabled>Refresh</button></div>
     <div class="devices-table-wrap"><table class="devices-table"><thead><tr><th>Tab</th><th>Status</th><th>Last seen</th></tr></thead><tbody id="deviceRows"></tbody></table></div>
-    <p id="devicesEmpty" class="devices-help">Connect this tab, then Refresh to see available tabs.</p>
+    <p id="devicesEmpty" class="devices-help">No tabs seen in the last 10 seconds. Connect this tab or Refresh.</p>
     <div class="device-actions">
       <button id="device-start" type="button" disabled>Start</button><button id="device-pause" type="button" disabled>Pause</button><button id="device-resume" type="button" disabled>Resume</button>
       <button id="device-stop" type="button" disabled>Stop</button><button id="device-stop-and-transcribe" type="button" disabled>Stop and transcribe</button><button id="device-abort" class="danger" type="button" disabled>Abort</button>
     </div>
-    <p class="devices-help">Select a recently seen tab before sending a command. Stop and transcribe starts a fresh recording while processing the previous one. Commands expire after 60 seconds.</p>
+    <p class="devices-help">Status updates about every 5 seconds. Tabs expire after 10 seconds without an update; connected tabs delete expired status files. Select a tab before sending a command. Stop and transcribe starts a fresh recording while processing the previous one. Commands expire after 60 seconds.</p>
     <div id="devicesMessage" class="devices-message" role="status"></div><div id="devicesResults" class="devices-results" aria-live="polite"></div>
   </dialog>
   <dialog id="importDialog">

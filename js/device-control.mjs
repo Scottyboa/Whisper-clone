@@ -9,7 +9,7 @@ const ACTIONS = new Set(['start', 'pause', 'resume', 'stop', 'stop-and-transcrib
 const STATES = new Set(['idle','starting','recording','pausing','paused','resuming','stopping','aborting','error']);
 const SCHEMA = 'whisper-clone.devices.v1';
 export const COMMAND_TTL = 60000;
-export const RECENT_MS = 30000;
+export const RECENT_MS = 10000;
 const MAX_JSON = 16384;
 const sameChild = (item, parent, name) => item?.id && item.parentReference?.id === parent && !item.remoteItem &&
   (name == null || item.name === name);
@@ -79,6 +79,16 @@ export class DeviceControl {
       state:STATES.has(raw.state) ? raw.state : 'error', transcribing:!!raw.transcribing,
       uploading:!!raw.uploading, audioReady:!!raw.audioReady,
       startedAt:Number.isFinite(raw.startedAt) ? raw.startedAt : null };
+  }
+  async publishPresence(token, generation, force = false) {
+    if (!this.fresh(generation)) return;
+    const previous = this.rows.find(row=>row.sessionId===this.id);
+    if (!force && previous && this.now()-previous.at<5000) return;
+    const own = this.snapshot();
+    await this.put(token,`session-${this.id}.json`,own);
+    if (!this.fresh(generation)) return;
+    this.rows = [{...own,local:true},...this.rows.filter(row=>row.sessionId!==this.id)];
+    this.emit();
   }
   async put(token, name, data, { create = false } = {}) {
     const response = await this.drive.request(token, `${itemPath(this.folderId)}:/${encodeURIComponent(name)}:/content${create ? '?@microsoft.graph.conflictBehavior=fail' : ''}`, {
@@ -151,17 +161,33 @@ export class DeviceControl {
       this.inflight.set(id,work);
     }
   }
-  async cleanup(token, items) {
+  async cleanup(token, items, generation = this.generation) {
     // Protocol files only; never recurse or touch Transcripts/other app data.
+    // Prioritize expired presence; bound each pass so old backlogs cannot stall polling indefinitely.
     let count = 0;
-    for (const item of items) {
-      const modified = Date.parse(item.lastModifiedDateTime);
-      const age = this.now()-modified;
-      const stale = (commandPattern.test(item.name) || ackPattern.test(item.name)) ? age > 300000 : sessionPattern.test(item.name) && age > 86400000;
-      if (!stale || !isFile(item) || !item.eTag || !sameChild(item,this.folderId)) continue;
-      try { await this.drive.request(token,itemPath(item.id),{method:'DELETE',headers:{'If-Match':item.eTag}}); }
+    const ordered = [...items].sort((a,b)=>Number(sessionPattern.test(b.name))-Number(sessionPattern.test(a.name)));
+    const expired = item => {
+      const age = this.now()-Date.parse(item.lastModifiedDateTime);
+      return sessionPattern.test(item.name) ? age >= RECENT_MS :
+        (commandPattern.test(item.name) || ackPattern.test(item.name)) && age > 300000;
+    };
+    for (const item of ordered) {
+      if (!this.fresh(generation)) return;
+      if (!expired(item) || !isFile(item) || !item.eTag || !sameChild(item,this.folderId)) continue;
+      try {
+        // Keep this tab alive even while an old backlog takes several requests to clear.
+        await this.publishPresence(token,generation);
+        if (!this.fresh(generation)) return;
+        const current = await (await this.drive.request(token,itemPath(item.id))).json();
+        if (!this.fresh(generation)) return;
+        if (!sameChild(current,this.folderId,item.name) || !isFile(current) || current.eTag !== item.eTag || !expired(current)) continue;
+        await this.publishPresence(token,generation);
+        if (!this.fresh(generation)) return;
+        // A heartbeat arriving after this read must survive the deletion attempt.
+        await this.drive.request(token,itemPath(item.id),{method:'DELETE',headers:{'If-Match':current.eTag}});
+      }
       catch (error) { if (![404,412].includes(error.status)) throw error; }
-      if (++count >= 3) break;
+      if (++count >= 25) break;
     }
   }
   runCycle(generation = this.generation) {
@@ -174,18 +200,18 @@ export class DeviceControl {
     let delay = 5000;
     try {
       const token = await this.auth(); if (!this.fresh(generation)) return;
-      const own = this.snapshot();
-      await this.put(token,`session-${this.id}.json`,own);
-      this.rows = [{...own,local:true},...this.rows.filter(row=>row.sessionId!==this.id)];
+      await this.publishPresence(token,generation,true);
       if (!this.fresh(generation)) return;
       await this.flushAcks(token);
       const items = await this.drive.children(token,this.folderId);
       if (!this.fresh(generation)) return;
       await this.processCommands(token,items,generation);
       if (!this.fresh(generation)) return;
-      await this.cleanup(token,items);
+      await this.cleanup(token,items,generation);
       if (!this.fresh(generation)) return;
       await this.flushAcks(token);
+      await this.syncRows(token,items,generation);
+      if (!this.fresh(generation)) return;
       this.status = 'Connected';
     } catch (error) {
       if (!this.fresh(generation)) return;
@@ -200,26 +226,38 @@ export class DeviceControl {
   async refresh() {
     if (!this.active) throw new Error('Connect this tab to Devices first.');
     const generation = this.generation, token = await this.auth();
-    const items = await this.drive.children(token,this.folderId), rows = [];
+    if (!this.fresh(generation)) return [];
+    const items = await this.drive.children(token,this.folderId);
+    if (!this.fresh(generation)) return [];
+    await this.cleanup(token,items,generation);
+    return this.syncRows(token,items,generation);
+  }
+  async syncRows(token, items, generation) {
+    const rows = [];
     for (const item of items) {
+      await this.publishPresence(token,generation);
+      if (!this.fresh(generation)) return [];
       const match = sessionPattern.exec(item.name);
-      if (!match || !isFile(item) || this.now()-Date.parse(item.lastModifiedDateTime)>86400000) continue;
+      if (!match || match[1] === this.id || !isFile(item) || this.now()-Date.parse(item.lastModifiedDateTime)>=RECENT_MS) continue;
       try {
         const value = await this.read(token,item);
         if (value?.schema === SCHEMA && value.type === 'session' && value.sessionId === match[1] &&
-            Number.isFinite(value.at) && value.at <= this.now()+5000 && STATES.has(value.state)) {
-          rows.push({...value,name:cleanName(value.name),local:value.sessionId===this.id});
+            Number.isFinite(value.at) && value.at <= this.now()+5000 && this.now()-value.at<RECENT_MS && STATES.has(value.state)) {
+          rows.push({...value,name:cleanName(value.name),local:false});
         }
       } catch (error) { if (error.retryMs) throw error; }
     }
     if (!this.fresh(generation)) return [];
-    // Always include this tab, even during listing propagation delays.
-    const own = {...this.snapshot(),local:true};
-    this.rows = rows.filter(row=>row.sessionId!==this.id); this.rows.unshift(own);
+    // Include this tab during listing propagation delays, using its last successful heartbeat time.
+    const own = this.rows.find(row=>row.sessionId===this.id);
+    this.rows = rows.filter(row=>this.now()-row.at<RECENT_MS);
+    if (own && this.now()-own.at<RECENT_MS) this.rows.unshift({...this.snapshot(),at:own.at,local:true});
     for (const [id,pending] of this.pending) {
       const item=items.find(item=>item.name===`ack-${pending.target}-${id}.json`);
-      if (item) {
+      if (item && !['completed','failed'].includes(pending.result?.status)) {
         try {
+          await this.publishPresence(token,generation);
+          if (!this.fresh(generation)) return [];
           const ack=await this.read(token,item);
           if (ack?.schema===SCHEMA && ack.type==='ack' && ack.id===id && ack.target===pending.target && ack.sender===this.id &&
               ack.action===pending.action && ['accepted','completed','failed'].includes(ack.status)) pending.result=ack;
@@ -233,7 +271,7 @@ export class DeviceControl {
   async send(target, action) {
     if (!this.active || !idPattern.test(target) || !ACTIONS.has(action)) throw new Error('Invalid Devices command.');
     const row=this.rows.find(row=>row.sessionId===target);
-    if (!row || this.now()-row.at>RECENT_MS) throw new Error('Refresh Devices and select a recently seen tab.');
+    if (!row || this.now()-row.at>=RECENT_MS) throw new Error('Refresh Devices and select a recently seen tab.');
     if ([...this.pending.values()].some(p=>p.target===target && !p.expired && !['completed','failed'].includes(p.result?.status) && (!['stop','abort'].includes(action) || p.action===action))) throw new Error('Wait for the previous command result, then Refresh.');
     const generation=this.generation, token=await this.auth();if(!this.fresh(generation))throw new Error('Devices disconnected.');
     const id=this.makeId(),createdAt=this.now(),expiresAt=createdAt+COMMAND_TTL;
