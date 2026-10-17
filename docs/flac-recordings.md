@@ -39,18 +39,22 @@ uploading a full-length file.
 
 ## Bounded processing and format
 
-The encoder implements the RFC 9639 streamable subset, using 4096-sample blocks:
+The encoder implements the RFC 9639 streamable subset, using 256-sample blocks:
 CONSTANT subframes for constant samples and VERBATIM subframes for other audio.
 This intentionally favors low CPU use and exact PCM preservation over maximum
 speech compression. Silence costs small frame/seek-table overhead, not zero
 bytes. Mixed speech/silence boundary blocks and metadata can make a FLAC larger
 than its shortened WAV, especially for short or very fragmented recordings.
 
-Seek points roughly every ten seconds allow efficient navigation in players
-such as VLC. STREAMINFO's zero MD5 denotes an omitted optional checksum; every
+Small blocks avoid a VLC 3.x seek-refinement failure with alternating tiny
+silence frames and large uncompressed speech frames. This costs roughly
+3–4 MB per hour of silence, still far smaller than uncompressed silent PCM.
+The importer also accepts the previous 4096-sample files; changing the app does
+not repair files already downloaded. Seek points are included roughly every
+ten seconds. STREAMINFO's zero MD5 denotes an omitted optional checksum; every
 frame has its standard CRC-8 header and CRC-16 footer checksums.
 
-Audio payload reads are limited to roughly 1 MiB (timing metadata to 2 MiB), frame buffers to 4096 samples, and
+Audio payload reads are limited to roughly 1 MiB (timing metadata to 2 MiB), new frame buffers to 256 samples, and
 output is assembled in Blob chunks. Neither export nor reimport allocates a
 full-duration PCM buffer for inserted silence. The retained speech and encoded
 output still consume memory/disk-backed Blob resources. Metadata is limited to
@@ -62,3 +66,8 @@ the compact WAV's 32-bit payload limit.
 Run `node --test tests/*.test.mjs`. The independent decoder test uses FFmpeg when
 installed. Set `WHISPER_TEST_CHROME` to a Chromium executable to also exercise
 real module workers, FLAC playback, actual download and manual reimport.
+Set `WHISPER_TEST_LIBVLC` to a libVLC shared library to additionally run native
+VLC seek regression tests through speech and long silent gaps, including a
+four-hour timeline. These use Python 3 and VLC's normal decoder/demux plugins
+with dummy audio output; a relocated VLC runtime may also need its usual
+`VLC_PLUGIN_PATH` and library search path. VLC 3.0.20 is covered by this check.

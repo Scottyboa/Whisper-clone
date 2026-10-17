@@ -1,10 +1,10 @@
-import { encodeTimelineFlac, prepareTimelineFlac } from './timeline-flac.mjs?v=20261017-flac1';
+import { encodeTimelineFlac, prepareTimelineFlac } from './timeline-flac.mjs?v=20261017-flac2';
 
 const active = new Map();
 export function runFlacTask(action, input, onProgress = () => {}) {
   if (typeof Worker === 'undefined') return action === 'encode' ? encodeTimelineFlac(input, onProgress) : prepareTimelineFlac(input, onProgress);
   return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL('./flac-worker.mjs?v=20261017-flac1', import.meta.url), { type: 'module' });
+    const worker = new Worker(new URL('./flac-worker.mjs?v=20261017-flac2', import.meta.url), { type: 'module' });
     const finish = (error, result) => {
       active.delete(worker); worker.terminate();
       if (error) reject(error); else resolve(result);

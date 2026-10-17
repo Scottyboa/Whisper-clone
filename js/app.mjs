@@ -1,12 +1,12 @@
-import { Recorder } from './recorder.mjs?v=20261017-flac1';
+import { Recorder } from './recorder.mjs?v=20261017-flac2';
 import { createDriveImportPrompt } from './drive-import-prompt.mjs?v=20261015-import1';
 import { DeviceControl } from './device-control.mjs?v=20261015-devices3';
 import { DevicesPanel, createAbortPrompt } from './devices-panel.mjs?v=20261015-devices3';
 import { clock, duration, dateStamp, timeStamp, recordingName, recordingTranscriptName, download } from './audio.mjs?v=20261015-clock1';
 import { MailControl } from './graph.mjs?v=20261015-devices1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';
-import { transcribeFile } from './soniox.mjs?v=20261017-flac1';
-import { runFlacTask, cancelFlacTasks } from './flac-tasks.mjs?v=20261017-flac1';
+import { transcribeFile } from './soniox.mjs?v=20261017-flac2';
+import { runFlacTask, cancelFlacTasks } from './flac-tasks.mjs?v=20261017-flac2';
 import { PrivacyView } from './privacy-view.mjs?v=20261014-demo1';
 import { TranscriptDrive } from './transcript-drive.mjs?v=20261015-import1';
 import { AppGuide } from './app-guide.mjs?v=20261015-guide1';

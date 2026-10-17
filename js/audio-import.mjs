@@ -1,5 +1,5 @@
 import { prepareAudio as prepareWav } from './wav-timing.mjs?v=20261015-clock1';
-import { runFlacTask } from './flac-tasks.mjs?v=20261017-flac1';
+import { runFlacTask } from './flac-tasks.mjs?v=20261017-flac2';
 
 export async function prepareAudio(file, progress = () => {}) {
   try {

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -31,6 +31,17 @@ test('full-length FLAC reimport recovers the exact speech PCM, timezone and cloc
   assert.equal(text, '(14:00:00) Speaker 1: 日本語\n\n(14:00:02) Speaker 2: Hello');
 });
 
+test('previous 4096-sample FLAC downloads still reimport with exact PCM and clocks', async () => {
+  // Saved from the original encoder: three constant blocks, with only the
+  // middle block retained. This fixture must not be rebuilt by the new encoder.
+  const encoded = await readFile(new URL('./fixtures/timeline-flac-4096.base64', import.meta.url), 'utf8');
+  const file = new File([Buffer.from(encoded.trim(), 'base64')], 'previous.flac');
+  const prepared = await prepareAudio(file);
+  assert.deepEqual(new Uint8Array(await prepared.file.arrayBuffer()),
+    new Uint8Array(await wavBlob([new Int16Array(4096).fill(1234)]).arrayBuffer()));
+  assert.deepEqual(prepared.timing, { version: 1, sampleRate: 16000, timeZone: 'UTC', segments: [[0, 4096, epoch + 256]] });
+});
+
 test('independent FFmpeg decoder verifies full duration, speech samples, silence and seeking', { skip: spawnSync('ffmpeg', ['-version']).status !== 0 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'whisper-flac-'));
   try {
@@ -53,7 +64,7 @@ test('four-hour file stores silence compactly and uses bounded reads during expo
   const requests = [], original = wavBlob([data], map);
   const source = { size: original.size, slice(start, end) { requests.push(end - start); return original.slice(start, end); } };
   const { blob, map: restored } = await encodeTimelineFlac({ blob: source, entry: longEntry, timing: map });
-  assert.equal(restored.totalSamples, 230400000); assert.ok(blob.size < 1500000, String(blob.size));
+  assert.equal(restored.totalSamples, 230400000); assert.ok(blob.size < 16 * 1024 * 1024, String(blob.size));
   const saved = new File([blob], 'four-hours.flac');
   const imported = { name: saved.name, size: saved.size, slice(start, end) { requests.push(end - start); return saved.slice(start, end); } };
   const prepared = await prepareTimelineFlac(imported);
@@ -65,7 +76,7 @@ test('four-hour file stores silence compactly and uses bounded reads during expo
 test('fully silent recordings keep their duration and reimport avoids a pointless Soniox job', async () => {
   const emptyTiming = { ...timing, segments: [] };
   const { blob } = await encodeTimelineFlac({ blob: null, entry: { ...entry, audioMs: 0 }, timing: emptyTiming });
-  assert.ok(blob.size < 2000);
+  assert.ok(blob.size < 5000);
   const prepared = await prepareAudio(new File([blob], 'silent.flac'));
   assert.equal(prepared.empty, true);
   await assert.rejects(transcribeFile(new File([blob], 'silent.flac'), 'fake-key', true), /no retained speech/);

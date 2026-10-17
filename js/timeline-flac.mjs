@@ -1,10 +1,14 @@
-// RFC 9639, streamable subset: mono PCM16 at 16 kHz, fixed 4096-sample
+// RFC 9639, streamable subset: mono PCM16 at 16 kHz, fixed 256-sample
 // blocks, CONSTANT for silence and VERBATIM for other audio. Speech samples
 // remain bit-identical. No full-duration PCM buffer or external codec is needed.
 import { validateTiming, MAX_TIMING_BYTES } from './wav-timing.mjs?v=20261015-clock1';
 import { wavBlob } from './audio.mjs?v=20261015-clock1';
 
-const RATE = 16000, BLOCK = 4096, CHUNK = 1024 * 1024;
+// VLC 3.x's FLAC seeker can stall on the extreme size difference between
+// large VERBATIM speech frames and tiny CONSTANT silence frames. Small blocks
+// keep its seek refinement working, including across hours of sparse audio.
+const RATE = 16000, BLOCK = 256, CHUNK = 1024 * 1024;
+const SEEK_FRAMES = RATE * 10.24 / BLOCK, YIELD_FRAMES = CHUNK / BLOCK;
 const TAG = 'WHISPER_CLONE_TIMING=', SCHEMA = 'whisper-clone.flac.v1';
 const CODEC = 'pcm16-constant-verbatim-v1';
 const utf8 = new TextEncoder();
@@ -103,15 +107,16 @@ function validMap(map, totalSamples) {
 // Bounded Blob reads work in both a module Worker and the test/runtime fallback.
 class Reader {
   constructor(blob, offset = 0) { this.blob = blob; this.position = offset; this.buffer = new Uint8Array(); this.index = 0; }
-  async read(size) {
+  async peek(size) {
     if (!Number.isSafeInteger(size) || size < 0 || this.position + size > this.blob.size) throw new Error('Truncated audio.');
     if (this.buffer.length - this.index < size) {
       this.buffer = new Uint8Array(await this.blob.slice(this.position, Math.min(this.blob.size, this.position + Math.max(CHUNK, size))).arrayBuffer());
       this.index = 0;
     }
-    const bytes = this.buffer.subarray(this.index, this.index + size);
-    this.index += size; this.position += size; return bytes;
+    return this.buffer.subarray(this.index, this.index + size);
   }
+  advance(size) { this.index += size; this.position += size; }
+  async read(size) { const bytes = await this.peek(size); this.advance(size); return bytes; }
 }
 
 export async function encodeTimelineFlac({ blob, entry, timing }, progress = () => {}) {
@@ -140,10 +145,10 @@ export async function encodeTimelineFlac({ blob, entry, timing }, progress = () 
       if (cursor === start + length) break;
     }
     const encoded = encodeFrame(samples.subarray(0, length), frame);
-    if (frame % 40 === 0) seeks.push([start, bytes, length]);
+    if (frame % SEEK_FRAMES === 0) seeks.push([start, bytes, length]);
     output.push(encoded); bytes += encoded.length; groupBytes += encoded.length;
-    if (groupBytes >= CHUNK) { frames.push(new Blob(output)); output = []; groupBytes = 0; }
-    if (frame % 256 === 0) { progress(frame / frameCount); await yieldUI(); }
+    if (groupBytes >= CHUNK || output.length >= 4096) { frames.push(new Blob(output)); output = []; groupBytes = 0; }
+    if (frame % YIELD_FRAMES === 0) { progress(frame / frameCount); await yieldUI(); }
   }
   if (copied !== keptSamples) throw new Error('Recording sample count changed.');
   if (output.length) frames.push(new Blob(output));
@@ -173,7 +178,8 @@ async function readMetadata(file) {
       if (info || size !== 34) return null;
       const view = new DataView(await file.slice(offset, offset + size).arrayBuffer());
       const value = view.getBigUint64(10);
-      info = { sampleRate: Number(value >> 44n), channels: Number(value >> 41n & 7n) + 1,
+      info = { blockSize: view.getUint16(0), maxBlockSize: view.getUint16(2),
+        sampleRate: Number(value >> 44n), channels: Number(value >> 41n & 7n) + 1,
         bits: Number(value >> 36n & 31n) + 1, samples: Number(value & ((1n << 36n) - 1n)) };
     } else if (type === 4 && size <= MAX_TIMING_BYTES + 4096) {
       const data = new Uint8Array(await file.slice(offset, offset + size).arrayBuffer()), view = new DataView(data.buffer);
@@ -194,8 +200,9 @@ async function readMetadata(file) {
     offset += size;
   }
   if (!last || tags !== 1 || info?.sampleRate !== RATE || info.channels !== 1 || info.bits !== 16 ||
+      ![256, 4096].includes(info.blockSize) || info.maxBlockSize !== info.blockSize ||
       !info.samples || !validMap(map, info.samples)) return null;
-  return { map, offset };
+  return { map, offset, blockSize: info.blockSize };
 }
 
 // Only decode the deliberately small codec subset emitted above. Re-encoded,
@@ -205,39 +212,45 @@ export async function prepareTimelineFlac(file, progress = () => {}) {
   try {
     const metadata = await readMetadata(file);
     if (!metadata) return original;
-    const { map } = metadata, reader = new Reader(file, metadata.offset);
+    const { map, blockSize } = metadata, reader = new Reader(file, metadata.offset);
+    const yieldFrames = CHUNK / blockSize;
     let sample = 0, number = 0, segment = 0, kept = 0, groupSamples = 0, group = [], output = [];
     while (sample < map.totalSamples) {
-      const prefix = await reader.read(4), header = [...prefix];
-      if (prefix[0] !== 255 || prefix[1] !== 248 || prefix[2] !== 0x70 || prefix[3] !== 8) return original;
-      const first = (await reader.read(1))[0]; header.push(first);
+      // Parse one bounded frame view rather than awaiting every header field.
+      // Small blocks must not make long-silence reimports expensive.
+      const frame = await reader.peek(Math.min(blockSize * 2 + 32, file.size - reader.position));
+      if (frame.length < 13 || frame[0] !== 255 || frame[1] !== 248 || frame[2] !== 0x70 || frame[3] !== 8) return original;
+      let at = 4;
+      const first = frame[at++];
       let frameNumber = first, width = 1;
       if (first >= 128) {
         width = 0; for (let mask = 128; first & mask; mask >>= 1) width++;
-        if (width < 2 || width > 6) return original;
+        if (width < 2 || width > 6 || at + width - 1 > frame.length) return original;
         frameNumber = first & (127 >> width);
-        const rest = await reader.read(width - 1);
-        for (const byte of rest) { if ((byte & 192) !== 128) return original; header.push(byte); frameNumber = frameNumber * 64 + (byte & 63); }
+        for (let i = 1; i < width; i++) {
+          const byte = frame[at++];
+          if ((byte & 192) !== 128) return original;
+          frameNumber = frameNumber * 64 + (byte & 63);
+        }
       }
       if (frameNumber !== number++ || codedNumber(frameNumber).length !== width) return original;
-      const block = await reader.read(2); header.push(...block);
-      const length = block[0] * 256 + block[1] + 1;
-      const headerCRC = (await reader.read(1))[0];
-      if (length !== Math.min(BLOCK, map.totalSamples - sample) || crc(header, 8) !== headerCRC) return original;
-      const sub = (await reader.read(1))[0];
+      const length = frame[at++] * 256 + frame[at++] + 1;
+      const headerEnd = at, headerCRC = frame[at++];
+      if (length !== Math.min(blockSize, map.totalSamples - sample) || crc(frame.subarray(0, headerEnd), 8) !== headerCRC) return original;
+      const sub = frame[at++];
       if (sub !== 0 && sub !== 2) return original;
-      const bytes = await reader.read(sub ? length * 2 : 2), data = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-      const frame = new Uint8Array(header.length + 2 + bytes.length);
-      frame.set(header); frame[header.length] = headerCRC; frame[header.length + 1] = sub; frame.set(bytes, header.length + 2);
-      const footer = await reader.read(2);
-      if (crc(frame, 16) !== footer[0] * 256 + footer[1]) return original;
+      const payloadSize = sub ? length * 2 : 2, frameSize = at + payloadSize + 2;
+      if (frameSize > frame.length) return original;
+      const data = new DataView(frame.buffer, frame.byteOffset + at, payloadSize);
+      if (crc(frame.subarray(0, frameSize - 2), 16) !== frame[frameSize - 2] * 256 + frame[frameSize - 1]) return original;
+      reader.advance(frameSize);
       // Entire silent blocks outside retained segments need no sample-by-sample
       // decoding. This is why reimporting a long timeline needs no second VAD.
       while (segment < map.segments.length && sample >= map.segments[segment][3] + map.segments[segment][1]) segment++;
       const nextSegment = map.segments[segment];
       if (sub === 0 && data.getInt16(0) === 0 && (!nextSegment || nextSegment[3] >= sample + length)) {
         sample += length;
-        if (number % 256 === 0) { progress(sample / map.totalSamples); await yieldUI(); }
+        if (number % yieldFrames === 0) { progress(sample / map.totalSamples); await yieldUI(); }
         continue;
       }
       const retained = new Int16Array(length); let count = 0;
@@ -251,7 +264,7 @@ export async function prepareTimelineFlac(file, progress = () => {}) {
       if (count) { group.push(retained.slice(0, count)); groupSamples += count; kept += count; }
       if (groupSamples >= CHUNK / 2) { output.push(wavBlob(group).slice(44)); group = []; groupSamples = 0; }
       sample += length;
-      if (number % 256 === 0) { progress(sample / map.totalSamples); await yieldUI(); }
+      if (number % yieldFrames === 0) { progress(sample / map.totalSamples); await yieldUI(); }
     }
     if (reader.position !== file.size || kept !== map.keptSamples) return original;
     if (!kept) return { file: null, timing: null, empty: true };

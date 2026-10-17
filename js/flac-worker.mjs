@@ -1,4 +1,4 @@
-import { encodeTimelineFlac, prepareTimelineFlac } from './timeline-flac.mjs?v=20261017-flac1';
+import { encodeTimelineFlac, prepareTimelineFlac } from './timeline-flac.mjs?v=20261017-flac2';
 
 self.onmessage = async ({ data }) => {
   try {

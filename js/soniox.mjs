@@ -1,5 +1,5 @@
 import { clockLabel } from './wav-timing.mjs?v=20261015-clock1';
-import { prepareAudio } from './audio-import.mjs?v=20261017-flac1';
+import { prepareAudio } from './audio-import.mjs?v=20261017-flac2';
 import { CONFIG } from './config.mjs';
 
 export function renderTranscript(result, speakers, timing = null) {
