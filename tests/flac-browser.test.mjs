@@ -1,0 +1,133 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { spawn } from 'node:child_process';
+import { readFile, writeFile, mkdtemp, rm, readdir } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { join, resolve, extname } from 'node:path';
+import { tmpdir } from 'node:os';
+
+const executable = process.env.WHISPER_TEST_CHROME;
+const root = fileURLToPath(new URL('../', import.meta.url));
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+// Private CDP pipes drive only this disposable test browser and local fixture.
+function protocol(process) {
+  let id = 0, buffered = Buffer.alloc(0), closed = false; const pending = new Map();
+  const stop = () => {
+    closed = true;
+    for (const task of pending.values()) { clearTimeout(task.timer); task.reject(new Error('Test browser exited.')); }
+    pending.clear();
+  };
+  process.once('exit', stop); process.once('error', stop);
+  process.stdio[3].on('error', stop); process.stdio[4].on('error', stop);
+  process.stdio[4].on('data', bytes => {
+    buffered = Buffer.concat([buffered, bytes]); let end;
+    while ((end = buffered.indexOf(0)) >= 0) {
+      const packet = JSON.parse(buffered.subarray(0, end).toString()); buffered = buffered.subarray(end + 1);
+      const task = pending.get(packet.id);
+      if (task) { pending.delete(packet.id); clearTimeout(task.timer); packet.error ? task.reject(new Error(packet.error.message)) : task.resolve(packet.result); }
+    }
+  });
+  return (method, params = {}, sessionId) => new Promise((resolve, reject) => {
+    if (closed) { reject(new Error('Test browser is closed.')); return; }
+    const number = ++id;
+    const timer = setTimeout(() => { pending.delete(number); reject(new Error(`CDP timeout: ${method}`)); }, 30000);
+    pending.set(number, { resolve, reject, timer });
+    process.stdio[3].write(JSON.stringify({ id: number, method, params, ...(sessionId ? { sessionId } : {}) }) + '\0');
+  });
+}
+
+test('Chrome module worker downloads playable FLAC, restarts before encoding and reimports compact speech', { skip: !executable, timeout: 60000 }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'whisper-flac-browser-'));
+  const downloads = join(directory, 'downloads');
+  const { mkdir } = await import('node:fs/promises'); await mkdir(downloads);
+  const fixtures = {
+    '/js/recorder.mjs': `import {Recorder as Base} from './test-real-recorder.mjs';export class Recorder extends Base {
+      constructor(options){super({...options,now:()=>window.testNow,createVAD:async callbacks=>({async drainAndPause(){callbacks.onSpeechEnd(new Float32Array(16000).fill(.25),[[0,16000,window.testNow-2000]])},destroy(){}})});window.testRecorder=this;}}`,
+    '/js/graph.mjs': `export class MailControl {constructor(options){Object.assign(this,options);window.testCommand=options.onCommand;this.active=false}async client(){return {}}unlink(){}}`,
+    '/js/device-control.mjs': `export const RECENT_MS=10000;export class DeviceControl {constructor(options){Object.assign(this,options);this.active=false;this.rows=[];this.pending=new Map()}async connect(){}disconnect(){}}`,
+    '/js/transcript-drive.mjs': `export class TranscriptDrive {async upload(text,options){window.testUploads.push({text,name:options.name});return options.name}}`,
+  };
+  const server = createServer(async (request, response) => {
+    try {
+      const pathname = new URL(request.url, 'http://localhost').pathname;
+      let body;
+      if (pathname === '/saved.flac') {
+        const name = (await readdir(downloads)).find(name => name.endsWith('.flac'));
+        body = await readFile(join(downloads, name));
+      } else if (fixtures[pathname]) body = fixtures[pathname];
+      else if (pathname === '/js/test-real-recorder.mjs') body = await readFile(join(root, 'js/recorder.mjs'));
+      else if (pathname === '/') {
+        let html = await readFile(join(root, 'index.html'), 'utf8');
+        const setup = `<script>
+          window.testNow=Date.parse('2026-10-17T12:00:00Z');window.testUploads=[];window.testPayloads=[];
+          sessionStorage.setItem('whisper-clone.soniox-key','fixture-only');
+          const nativeFetch=window.fetch.bind(window);
+          window.fetch=async(url,options={})=>{
+            if(!String(url).includes('soniox.com'))return nativeFetch(url,options);
+            let result={};
+            if(String(url).endsWith('/files')&&options.method==='POST'){
+              const file=options.body.get('file');window.testPayloads.push({name:file.name,type:file.type,size:file.size});result={id:'fixture-file'};
+            }else if(String(url).endsWith('/transcriptions')&&options.method==='POST')result={id:'fixture-job'};
+            else if(String(url).endsWith('/transcript'))result={tokens:[{text:'日本語 Test',speaker:1,start_ms:0}]};
+            else if(options.method!=='DELETE')result={status:'completed'};
+            return new Response(JSON.stringify(result));
+          };
+        </script>`;
+        body = html.replace('<head>', '<head>' + setup);
+      } else {
+        const path = resolve(root, '.' + pathname);
+        if (!path.startsWith(root)) throw new Error('Invalid fixture path');
+        body = await readFile(path);
+      }
+      const mime = pathname === '/' ? 'text/html' : /\.(mjs|js)$/.test(pathname) ? 'text/javascript' : extname(pathname) === '.css' ? 'text/css' : 'application/octet-stream';
+      response.writeHead(200, { 'Content-Type': mime, 'Cache-Control': 'no-store' }); response.end(body);
+    } catch { response.writeHead(404); response.end(); }
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const browser = spawn(executable, ['--no-sandbox', '--headless', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-pipe', `--user-data-dir=${join(directory, 'profile')}`], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  const cdp = protocol(browser);
+  try {
+    await cdp('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads });
+    const { targetId } = await cdp('Target.createTarget', { url: `http://127.0.0.1:${server.address().port}/` });
+    const { sessionId } = await cdp('Target.attachToTarget', { targetId, flatten: true });
+    const evaluate = async expression => {
+      const result = await cdp('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, sessionId);
+      if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
+      return result.result.value;
+    };
+    for (let i = 0; i < 100 && !await evaluate("typeof window.testCommand==='function'"); i++) await delay(50);
+    assert.equal(await evaluate("typeof window.testCommand==='function'"), true);
+    // Real worker/codec and real download; provider and microphone are fixtures.
+    await evaluate("window.testCommand('start')");
+    await evaluate("window.testNow+=10000;window.testCommand('stop-and-transcribe')");
+    assert.equal(await evaluate('window.testRecorder.state'), 'recording');
+    for (let i = 0; i < 100 && !(await readdir(downloads)).some(name => name.endsWith('.flac')); i++) await delay(50);
+    assert.ok((await readdir(downloads)).some(name => name.endsWith('.flac')),
+      await evaluate("document.getElementById('audioDownloadStatus').textContent"));
+    for (let i = 0; i < 100 && !await evaluate('window.testUploads.length'); i++) await delay(50);
+    assert.equal(await evaluate('window.testUploads.length'), 1);
+    assert.equal(await evaluate('window.testPayloads[0].size'), 32044);
+    const playback = await evaluate(`(async()=>{const blob=await(await fetch('/saved.flac')).arrayBuffer();
+      const context=new AudioContext({sampleRate:16000});try{const decoded=await context.decodeAudioData(blob);
+      const pcm=decoded.getChannelData(0);return {duration:decoded.duration,channels:decoded.numberOfChannels,leading:pcm[0],speech:pcm[128000],trailing:pcm[159000]};}finally{await context.close();}})()`);
+    assert.equal(playback.duration, 10); assert.equal(playback.channels, 1);
+    assert.equal(playback.leading, 0); assert.ok(playback.speech > .2); assert.equal(playback.trailing, 0);
+    await evaluate(`(async()=>{const blob=await(await fetch('/saved.flac')).blob();const transfer=new DataTransfer();
+      transfer.items.add(new File([blob],'saved.flac',{type:'audio/flac'}));const input=document.getElementById('file');
+      input.files=transfer.files;input.dispatchEvent(new Event('change'));document.getElementById('speakers').checked=true;
+      document.getElementById('transcribe').click();})()`);
+    for (let i = 0; i < 100 && await evaluate('window.testPayloads.length') < 2; i++) await delay(50);
+    assert.equal(await evaluate('window.testPayloads[1].size'), 32044);
+    assert.equal(await evaluate('window.testPayloads[1].name'), 'saved.wav');
+    for (let i = 0; i < 100 && !await evaluate("document.getElementById('transcript').value.includes('日本語')"); i++) await delay(50);
+    assert.match(await evaluate("document.getElementById('transcript').value"), /\(14:00:08\) Speaker 1: 日本語 Test/);
+    await evaluate("window.testCommand('abort')");
+    assert.equal(await evaluate('window.testRecorder.state'), 'idle');
+  } finally {
+    await cdp('Browser.close').catch(() => {}); browser.kill();
+    await new Promise(resolve => server.close(resolve)); await delay(200);
+    await rm(directory, { recursive: true, force: true });
+  }
+});

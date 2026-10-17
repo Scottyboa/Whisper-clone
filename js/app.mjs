@@ -1,11 +1,12 @@
-import { Recorder } from './recorder.mjs?v=20261015-devices1';
+import { Recorder } from './recorder.mjs?v=20261017-flac1';
 import { createDriveImportPrompt } from './drive-import-prompt.mjs?v=20261015-import1';
 import { DeviceControl } from './device-control.mjs?v=20261015-devices3';
 import { DevicesPanel, createAbortPrompt } from './devices-panel.mjs?v=20261015-devices3';
 import { clock, duration, dateStamp, timeStamp, recordingName, recordingTranscriptName, download } from './audio.mjs?v=20261015-clock1';
 import { MailControl } from './graph.mjs?v=20261015-devices1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';
-import { transcribeFile } from './soniox.mjs?v=20261015-clock1';
+import { transcribeFile } from './soniox.mjs?v=20261017-flac1';
+import { runFlacTask, cancelFlacTasks } from './flac-tasks.mjs?v=20261017-flac1';
 import { PrivacyView } from './privacy-view.mjs?v=20261014-demo1';
 import { TranscriptDrive } from './transcript-drive.mjs?v=20261015-import1';
 import { AppGuide } from './app-guide.mjs?v=20261015-guide1';
@@ -22,7 +23,8 @@ function bootstrap() {
   let apiKey = '', history = [], file = null, transcribing = false, linking = false;
   let wakeLock = null, wakeGeneration = 0, importBusy = false;
   let driveBusy = false, drivePending = 0, transcriptionPending = 0;
-  let driveQueue = Promise.resolve(), transcriptionQueue = Promise.resolve();
+  let driveQueue = Promise.resolve(), transcriptionQueue = Promise.resolve(), audioDownloadQueue = Promise.resolve();
+  let audioDownloadsPending = 0, pageClosing = false;
   let commandGeneration = 0;
   const message = (text = '', error = false) => { $('message').textContent = text; $('message').classList.toggle('error', error); };
   try {
@@ -155,6 +157,35 @@ function bootstrap() {
     }
   }
 
+  function queueAudioDownload(result) {
+    audioDownloadsPending++;
+    const job = audioDownloadQueue.then(async () => {
+      if (pageClosing) return;
+      const status = $('audioDownloadStatus');
+      status.classList.remove('error');
+      status.textContent = 'Preparing full-length FLAC download…';
+      let artifact, filename = recordingName(result.entry).replace(/\.wav$/, '.flac');
+      try {
+        artifact = (await runFlacTask('encode', result, value => {
+          status.textContent = `Preparing full-length FLAC download… ${Math.round(value * 100)}%`;
+        })).blob;
+      } catch (error) {
+        if (!result.blob) throw error;
+        // Preserve captured speech if timing, encoding or worker startup fails.
+        artifact = result.blob; filename = recordingName(result.entry);
+        status.classList.add('error');
+        status.textContent = `Full-length FLAC could not be prepared. Downloading the shortened WAV instead. ${error.message || ''}`;
+      }
+      download(artifact, filename);
+      if (filename.endsWith('.flac')) status.textContent = `FLAC download requested · ${duration(result.entry.elapsedMs)} elapsed · ${duration(result.entry.audioMs)} retained audio`;
+    }).catch(error => {
+      $('audioDownloadStatus').classList.add('error');
+      $('audioDownloadStatus').textContent = `Audio download failed. ${error.message || ''}`;
+    }).finally(() => { audioDownloadsPending--; });
+    audioDownloadQueue = job;
+    return job;
+  }
+
   async function runCommand(action) {
     const generation = ++commandGeneration;
     try {
@@ -173,9 +204,10 @@ function bootstrap() {
       catch { message('History could not be saved for refresh.', true); }
       if (blob) {
         message(`Recording finished · ${duration(entry.elapsedMs)} elapsed · ${duration(entry.audioMs)} audio`);
-        try { download(blob, recordingName(entry)); }
-        catch { message('The WAV download could not be started.', true); }
       } else { message('No speech detected.'); }
+      // Encode/download independently of recording commands and transcription.
+      // Fully silent recordings can still produce a compact full-length FLAC.
+      if (blob || result.timing) queueAudioDownload(result);
       $('timer').textContent = clock(entry.elapsedMs);
       if (automatic) {
         // Stop has drained the VAD and produced an independent WAV. Start the
@@ -187,7 +219,7 @@ function bootstrap() {
         }, error => error) : Promise.resolve(null);
         let keyError = null;
         if (blob) {
-          if (!key) keyError = new Error('WAV download requested, but automatic transcription needs a Soniox API key. Use Import Key.');
+          if (!key) keyError = new Error('Audio download queued, but automatic transcription needs a Soniox API key. Use Import Key.');
           else {
             const source = new File([blob], recordingName(entry), { type: 'audio/wav' });
             // Snapshot the completed recording, not the new active capture.
@@ -197,7 +229,7 @@ function bootstrap() {
         const restartError = await restart;
         if (restartError) {
           if (generation === commandGeneration && recorder.state === 'idle') $('recordStatus').textContent = 'Restart failed — click Start to retry';
-          throw new Error(`The new recording could not start. ${restartError.message || 'Check microphone access.'} ${blob && key ? 'The previous WAV will still be transcribed.' : 'The previous recording was finalized.'}`);
+          throw new Error(`The new recording could not start. ${restartError.message || 'Check microphone access.'} ${blob && key ? 'The previous recording will still be transcribed.' : 'The previous recording was finalized.'}`);
         }
         if (keyError) throw keyError;
       }
@@ -323,7 +355,7 @@ function bootstrap() {
         }
         if (!cleanupFailed) message(automatic ? 'Recording transcribed with speaker labels and saved to OneDrive.' : '');
       } catch (error) {
-        message(error.message || 'Transcription failed. The WAV is selected for retry.', true);
+        message(error.message || 'Transcription failed. The audio file is selected for retry.', true);
         throw error;
       }
     }).finally(() => {
@@ -339,10 +371,11 @@ function bootstrap() {
   });
 
   window.addEventListener('beforeunload', event => {
-    if (recorder.state !== 'idle' || transcribing || driveBusy) { event.preventDefault(); event.returnValue = ''; }
+    if (recorder.state !== 'idle' || transcribing || driveBusy || audioDownloadsPending) { event.preventDefault(); event.returnValue = ''; }
   });
   window.addEventListener('pagehide', () => {
-    devices.disconnect(); panel.dispose(); mail.unlink(); recorder.dispose(); wakeGeneration++;
+    pageClosing = true;
+    devices.disconnect(); panel.dispose(); mail.unlink(); recorder.dispose(); cancelFlacTasks(); wakeGeneration++;
     wakeLock?.release().catch(() => {}); file = null;
   });
   window.addEventListener('pageshow', event => { if (event.persisted) location.reload(); });

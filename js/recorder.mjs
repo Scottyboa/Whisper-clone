@@ -162,7 +162,7 @@ export class Recorder {
       this.parts = []; this.samples = 0; this.startedAt = null;
       this.timingSegments = [];
       this.setState('idle');
-      return { entry, blob };
+      return { entry, blob, timing: timeline };
     }
   }
   dispose() {

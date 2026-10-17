@@ -1,4 +1,5 @@
-import { prepareAudio, clockLabel } from './wav-timing.mjs?v=20261015-clock1';
+import { clockLabel } from './wav-timing.mjs?v=20261015-clock1';
+import { prepareAudio } from './audio-import.mjs?v=20261017-flac1';
 import { CONFIG } from './config.mjs';
 
 export function renderTranscript(result, speakers, timing = null) {
@@ -46,9 +47,11 @@ export async function transcribeFile(file, apiKey, speakers, onStatus = () => {}
   };
   let cleanupOK = true;
   try {
+    onStatus('Preparing audio…');
+    const prepared = await prepareAudio(file, value => onStatus(`Preparing audio… ${Math.round(value * 100)}%`));
+    if (prepared.empty) throw new Error('This recording contains no retained speech.');
     onStatus('Uploading…');
-    const prepared = await prepareAudio(file);
-    const form = new FormData(); form.append('file', prepared.file, file.name);
+    const form = new FormData(); form.append('file', prepared.file, prepared.file.name || file.name);
     const upload = await (await request('files', { method: 'POST', body: form })).json();
     fileId = upload.id;
     if (!fileId) throw new Error('Soniox did not return a file ID.');

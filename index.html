@@ -6,12 +6,12 @@
   <meta name="referrer" content="no-referrer">
   <title>Whisper-clone</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="style.css?v=20261015-guide1">
+  <link rel="stylesheet" href="style.css?v=20261017-flac1">
   <script defer src="vendor/ort/ort.min.js"></script>
   <script defer src="vendor/vad/bundle.min.js"></script>
   <script defer src="vendor/msal/msal-browser.min.js"></script>
   <script defer src="vendor/jszip/jszip.min.js"></script>
-  <script type="module" src="js/app.mjs?v=20261015-guide1"></script>
+  <script type="module" src="js/app.mjs?v=20261017-flac1"></script>
 </head>
 <body>
   <div class="privacy-controls">
@@ -122,6 +122,7 @@
         </div>
         <textarea id="transcript" aria-label="Transcript" spellcheck="false"></textarea>
         <div id="message" role="status" aria-live="polite"></div>
+        <div id="audioDownloadStatus" role="status" aria-live="polite"></div>
         <div id="driveMessage" role="status" aria-live="polite"></div>
       </section>
     </main>
@@ -143,18 +144,18 @@
         <table class="guide-table"><thead><tr><th scope="col">Button</th><th scope="col">What happens</th></tr></thead><tbody>
           <tr><th scope="row">Start</th><td>Starts a new recording. Pressing Start while already recording does not create another recording.</td></tr>
           <tr><th scope="row">Pause / Resume</th><td>Pauses audio capture, then continues the same recording. The button changes to Resume while paused.</td></tr>
-          <tr><th scope="row">Stop</th><td>Finishes the recording and requests a local WAV download. It does not automatically transcribe or restart.</td></tr>
+          <tr><th scope="row">Stop</th><td>Finishes the recording and prepares a local full-length FLAC download. It does not automatically transcribe or restart.</td></tr>
           <tr><th scope="row">Abort</th><td>Asks for confirmation, then discards the current recording without saving or transcribing it. Previous background jobs continue.</td></tr>
           <tr><th scope="row">Keep awake</th><td>Requests that the screen stay awake while this page is visible, if the browser supports it. Keep the computer awake and the tab open.</td></tr>
         </tbody></table>
-        <p><strong>Timer and VAD:</strong> the timer shows elapsed time, including pauses. Voice activity detection removes most silence from the saved audio, so its audio duration can be shorter.</p>
-        <p><strong>History:</strong> select a recording to see its date, start, stop, elapsed time and retained audio duration. History stores those details, not a playable archive of the WAV files.</p>
+        <p><strong>Timer and VAD:</strong> the timer shows elapsed time, including pauses. Voice activity detection shortens the audio sent for transcription. The downloaded FLAC restores removed intervals as efficiently stored silence, so playback follows the full recording timeline, including pauses. Sound discarded by VAD is not restored.</p>
+        <p><strong>History:</strong> select a recording to see its date, start, stop, elapsed time and retained audio duration. History stores those details, not a playable audio archive.</p>
       </section>
       <section aria-labelledby="guideAutomatic">
         <h3 id="guideAutomatic">Stop and transcribe</h3>
         <p>Send this command by email or use it in Devices. It:</p>
         <ol>
-          <li>Finishes the current recording and requests its WAV download.</li>
+          <li>Finishes the current recording and prepares its full-length FLAC download in the background.</li>
           <li>Starts a fresh recording once the previous audio has been finalized.</li>
           <li>Transcribes the previous audio with speaker labels in the background, then uploads the finished TXT to OneDrive.</li>
         </ol>
@@ -188,12 +189,13 @@
       <section aria-labelledby="guideTranscription">
         <h3 id="guideTranscription">Transcribe a file</h3>
         <p>Use <strong>Upload File</strong> to select audio, choose whether you want <strong>Speaker labels</strong>, then press <strong>Transcribe</strong>. Results appear in the transcript field. You can edit that text and save it with <strong>EX.Drive</strong>.</p>
-        <p>With speaker labels enabled, recordings made by this app can show original clock times beside speaker turns, even after VAD removed silence. Older audio still transcribes; original clock times require the recording’s timing metadata.</p>
+        <p>With speaker labels enabled, recordings made by this app can show original clock times beside speaker turns, even after VAD removed silence. In a full-length FLAC, subtract its recording start time to find the matching playback position in VLC or another player.</p>
+        <p>Uploading an app-generated FLAC uses its timing metadata to send only retained audio to Soniox, without repeating VAD. Older WAVs and ordinary FLACs still transcribe through the existing upload path; original clock times require valid recording metadata. If full-length export fails, the app preserves the shortened WAV and shows a download warning.</p>
         <p><strong>Clear</strong> beside Import Key removes the Soniox key from this tab’s session after confirmation. It does not delete Drive files.</p>
       </section>
       <section aria-labelledby="guideDrive">
         <h3 id="guideDrive">OneDrive files</h3>
-        <p>The app uses its own OneDrive app folder. <strong>Transcripts</strong> contains saved text; <strong>DeviceControl</strong> contains temporary device status, commands and replies. WAV downloads are saved locally, not uploaded to OneDrive by this app.</p>
+        <p>The app uses its own OneDrive app folder. <strong>Transcripts</strong> contains saved text; <strong>DeviceControl</strong> contains temporary device status, commands and replies. Audio downloads are saved locally, not uploaded to OneDrive by this app.</p>
         <table class="guide-table"><thead><tr><th scope="col">Button</th><th scope="col">What happens</th></tr></thead><tbody>
           <tr><th scope="row">EX.Drive</th><td>Saves the current transcript field as a new TXT file named with the export date and time. Automatic recording transcripts instead use their recording interval and VAD audio duration.</td></tr>
           <tr><th scope="row">Imp. Drive</th><td>Offers two options, both checked by default: insert the combined COMPLETE.txt into the transcript field, and download a ZIP with the individual files and COMPLETE.txt. Choose either or both. Inserting replaces the current transcript field. Uncheck both to change Import to Exit, or close the prompt with its red ×.</td></tr>

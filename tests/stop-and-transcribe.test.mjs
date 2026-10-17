@@ -8,12 +8,13 @@ import { transcribeFile as realTranscribe } from '../js/soniox.mjs';
 import * as audio from '../js/audio.mjs';
 import { createDriveImportPrompt } from '../js/drive-import-prompt.mjs';
 import { AppGuide } from '../js/app-guide.mjs';
+import { runFlacTask as realFlacTask } from '../js/flac-tasks.mjs';
 
 const account = { homeAccountId: 'recording-account' };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => { resolve=a; reject=b; }); return {promise,resolve,reject}; };
 const app = readFileSync(new URL('../js/app.mjs', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '');
-function harness({ key = 'soniox-key', speech = true, timed = false, transcribe, upload, onCapture, onDrain, downloadError = false, abortConfirmed = true, readDrive } = {}) {
+function harness({ key = 'soniox-key', speech = true, timed = false, transcribe, upload, onCapture, onDrain, downloadError = false, abortConfirmed = true, readDrive, flacTask } = {}) {
   const elements = new Map(), downloads = [], transcriptions = [], uploads = [], commands = [], captures = [], importCalls = [];
   const makeElement = () => ({
     value: '', checked: false, disabled: false, textContent: '', children: [], listeners: new Map(),
@@ -51,6 +52,7 @@ function harness({ key = 'soniox-key', speech = true, timed = false, transcribe,
   }
   const context = vm.createContext({
     ...audio, download: (blob,name) => { downloads.push({blob,name}); if(downloadError)throw new Error('download blocked'); }, Recorder, MailControl: Mail, TranscriptDrive: Drive,
+    runFlacTask: flacTask || (async (action,input) => { if(!timed)throw new Error('Missing fixture timing');return realFlacTask(action,input); }), cancelFlacTasks(){},
     PrivacyView: class {}, AppGuide, File, createDriveImportPrompt, DeviceControl:Devices, DevicesPanel:class{dispose(){}},createAbortPrompt:()=>async()=>abortConfirmed,
     transcribeFile: async (...args) => { transcriptions.push(args); return transcribe ? transcribe(...args) : 'Speaker 1: Hello\n\nSpeaker 2: Hi'; },
     sessionStorage: {getItem: name => name.endsWith('soniox-key') ? key : null, setItem() {}, removeItem() {}},
@@ -77,6 +79,28 @@ test('the guide opens during recording and transcription without changing either
   assert.equal(h.recorder.state,'recording');assert.deepEqual(h.commands,commands);
   h.el('guideClose').listeners.get('click')();assert.equal(h.el('guideDialog').open,false);
   assert.equal(h.recorder.state,'recording');assert.equal(h.mail.active,true);
+});
+
+test('FLAC preparation never gates automatic restart, transcription, upload or Abort of the fresh recording',async()=>{
+  const encode=deferred(),h=harness({flacTask:()=>encode.promise});
+  await h.mail.onCommand('start');h.advance(10000);await h.mail.onCommand('stop-and-transcribe');await tick();
+  assert.equal(h.recorder.state,'recording');assert.equal(h.captures.length,2);
+  assert.equal(h.transcriptions.length,1);assert.equal(h.uploads.length,1);assert.equal(h.downloads.length,0);
+  assert.match(h.el('audioDownloadStatus').textContent,/Preparing/);
+  await h.devices.execute('abort');assert.equal(h.recorder.state,'idle');
+  encode.resolve({blob:new Blob(['fLaC fixture'],{type:'audio/flac'})});await tick();
+  assert.equal(h.downloads.length,1);assert.match(h.downloads[0].name,/\.flac$/);
+  assert.equal(h.recorder.state,'idle');assert.equal(h.uploads.length,1);
+});
+
+test('a fully silent timed recording downloads a full-length FLAC without calling Soniox',async()=>{
+  const h=harness({speech:false,timed:true});await h.mail.onCommand('start');h.advance(30000);
+  await h.mail.onCommand('stop-and-transcribe');assert.equal(h.recorder.state,'recording');
+  for(let i=0;i<200&&!h.downloads.length;i++)await new Promise(resolve=>setTimeout(resolve,5));
+  assert.equal(h.downloads.length,1);assert.match(h.downloads[0].name,/\.flac$/);
+  assert.equal(h.transcriptions.length,0);assert.equal(h.uploads.length,0);
+  const {prepareAudio}=await import('../js/audio-import.mjs');
+  assert.equal((await prepareAudio(new File([h.downloads[0].blob],'silent.flac'))).empty,true);
 });
 
 test('new exact command accepts whitespace/case and preserves self-sender, blank-subject and age checks', () => {
@@ -193,7 +217,7 @@ test('real mailbox polling processes later commands during transcription and ded
   gate.resolve('done');await tick();assert.equal(h.uploads.length,1);
 });
 
-test('automatic workflow uploads real clock-stamped output and preserves the same timing map in its WAV download',async()=>{
+test('automatic workflow uploads real clock-stamped output and preserves the same timing map in its full-length FLAC download',async()=>{
   const original=globalThis.fetch;
   globalThis.fetch=async(url,opts={})=>new Response(JSON.stringify(opts.method==='DELETE'?{}:
     url.endsWith('/files')?{id:'file'}:opts.method==='POST'?{id:'job'}:
@@ -204,8 +228,10 @@ test('automatic workflow uploads real clock-stamped output and preserves the sam
     for(let i=0;i<30&&!h.uploads.length;i++)await tick();
     assert.match(h.uploads[0].text,/^\(10:00:10\) Speaker 1: Clock-stamped text$/);
     assert.equal(h.el('transcript').value,h.uploads[0].text);
-    const {prepareAudio}=await import('../js/wav-timing.mjs');
-    const prepared=await prepareAudio(new File([h.downloads[0].blob],'saved.wav'));
+    for(let i=0;i<200&&!h.downloads.length;i++)await new Promise(resolve=>setTimeout(resolve,5));
+    assert.match(h.downloads[0].name,/\.flac$/);
+    const {prepareAudio}=await import('../js/audio-import.mjs');
+    const prepared=await prepareAudio(new File([h.downloads[0].blob],'saved.flac'));
     assert.ok(prepared.timing);assert.equal(prepared.file.size,32044);
   }finally{globalThis.fetch=original;}
 });
@@ -270,7 +296,7 @@ test('mailbox Stop after a rotating command stops the new recording and duplicat
   const mail=new MailControl({now:()=>now,onCommand:h.mail.onCommand,auth:{acquireTokenSilent:async()=>({accessToken:'token'})},
     fetcher:async()=>new Response(JSON.stringify({value:[commandMail(),commandMail({id:'final-stop',receivedDateTime:'2026-10-15T08:00:01Z',body:{content:'stop recording'}})]}))});
   mail.active=true;mail.account=account;mail.addresses=new Set(['self@example.com']);mail.linkedAt=now-60000;mail.schedule=()=>{};
-  await mail.poll();assert.equal(h.recorder.state,'idle');assert.equal(h.captures.length,2);assert.equal(h.downloads.length,2);
+  await mail.poll();await tick();assert.equal(h.recorder.state,'idle');assert.equal(h.captures.length,2);assert.equal(h.downloads.length,2);
   await mail.poll();assert.equal(h.recorder.state,'idle');assert.equal(h.captures.length,2);
   gate.resolve('text');await tick();assert.equal(h.recorder.state,'idle');
 });
