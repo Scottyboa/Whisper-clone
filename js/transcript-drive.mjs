@@ -1,6 +1,13 @@
 const GRAPH = 'https://graph.microsoft.com/v1.0';
 const SCOPES = ['Files.ReadWrite.AppFolder'];
 export const TRANSCRIPT_FOLDER = 'Transcripts';
+export const DRIVE_FOLDERS = [TRANSCRIPT_FOLDER, 'translations', 'temp'];
+function selectedFolders(folders = [TRANSCRIPT_FOLDER]) {
+  if (!Array.isArray(folders) || !folders.length || folders.some(name => !DRIVE_FOLDERS.includes(name))) {
+    throw new Error('Choose at least one supported OneDrive folder.');
+  }
+  return [...new Set(folders)];
+}
 const encode = encodeURIComponent;
 const itemPath = id => `/me/drive/items/${encode(id)}`;
 const isText = item => !!item.file && !item.folder && !item.remoteItem && /\.txt$/i.test(item.name || '');
@@ -93,10 +100,11 @@ export class TranscriptDrive {
     return response;
   }
 
-  async folder(token, create = false) {
+  async folder(token, create = false, name = TRANSCRIPT_FOLDER) {
+    selectedFolders([name]);
     const root = await (await this.request(token, '/me/drive/special/approot?$select=id,folder')).json();
     if (!root?.id || !root.folder) throw new Error('This Microsoft account has no available OneDrive app folder.');
-    const path = `${itemPath(root.id)}:/${TRANSCRIPT_FOLDER}?$select=id,name,folder,remoteItem,parentReference`;
+    const path = `${itemPath(root.id)}:/${name}?$select=id,name,folder,remoteItem,parentReference`;
     const read = async () => (await this.request(token, path)).json();
     let folder;
     try { folder = await read(); }
@@ -106,7 +114,7 @@ export class TranscriptDrive {
       try {
         folder = await (await this.request(token, `${itemPath(root.id)}/children`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: TRANSCRIPT_FOLDER, folder: {}, '@microsoft.graph.conflictBehavior': 'fail' }),
+          body: JSON.stringify({ name, folder: {}, '@microsoft.graph.conflictBehavior': 'fail' }),
         })).json();
       } catch (error) {
         // Another tab/device may have created the folder in the meantime.
@@ -115,7 +123,7 @@ export class TranscriptDrive {
       }
     }
     checkChild(folder, root.id);
-    if (!folder.folder || folder.name !== TRANSCRIPT_FOLDER) throw new Error('The OneDrive Transcripts location is not a folder.');
+    if (!folder.folder || folder.name !== name) throw new Error(`The OneDrive ${name} location is not a folder.`);
     return folder;
   }
 
@@ -142,17 +150,25 @@ export class TranscriptDrive {
     return result;
   }
 
-  async upload(text, { name = uploadFilename(this.now()), ...authOptions } = {}) {
+  async upload(text, { name = uploadFilename(this.now()), folders, ...authOptions } = {}) {
     if (typeof text !== 'string' || !text.trim()) throw new Error('The transcript is empty.');
     archiveName(name);
     if (!/\.txt$/i.test(name) || /[:*?"<>|]/.test(name)) throw new Error('Unsupported transcript filename.');
+    const destinations = selectedFolders(folders);
     const token = await this.token(authOptions);
-    const folder = await this.folder(token, true);
     // Manual uploads use local upload timestamps; automatic uploads use the
     // recording interval. Fail rather than overwrite an existing file.
-    await this.request(token, `${itemPath(folder.id)}:/${encode(name)}:/content?@microsoft.graph.conflictBehavior=fail`, {
-      method: 'PUT', headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: text,
-    });
+    const saved = [], failed = [];
+    for (const destination of destinations) {
+      try {
+        const folder = await this.folder(token, true, destination);
+        await this.request(token, `${itemPath(folder.id)}:/${encode(name)}:/content?@microsoft.graph.conflictBehavior=fail`, {
+          method: 'PUT', headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: text,
+        });
+        saved.push(destination);
+      } catch (error) { failed.push(`${destination}: ${error.message || 'Upload failed.'}`); }
+    }
+    if (failed.length) throw new Error(`${saved.length ? `Saved to ${saved.join(', ')}. ` : ''}Failed to save to ${failed.join('; ')}${saved.length ? ' Retry only the failed folders to avoid duplicate copies.' : ''}`);
     return name;
   }
 
@@ -179,12 +195,12 @@ export class TranscriptDrive {
     return new Uint8Array(await response.arrayBuffer());
   }
 
-  async exportZip(onProgress = () => {}, { includeZip = true } = {}) {
+  async exportZip(onProgress = () => {}, { includeZip = true, folders } = {}) {
+    const destinations = selectedFolders(folders);
     const token = await this.token();
-    const folder = await this.folder(token);
-    const zip = includeZip ? this.zipFactory() : null, texts = [], seen = new Set();
-    const archiveRoot = zip?.folder(TRANSCRIPT_FOLDER);
-    const visit = async (folderId, prefix = '') => {
+    const zip = includeZip ? this.zipFactory() : null, seen = new Set(), combined = [];
+    let count = 0;
+    const visit = async (folderId, archiveRoot, texts, prefix = '') => {
       if (seen.has(folderId)) throw new Error('Invalid OneDrive folder hierarchy.');
       seen.add(folderId);
       const items = await this.children(token, folderId);
@@ -200,7 +216,7 @@ export class TranscriptDrive {
         const path = `${prefix}${name}`;
         if (item.folder) {
           archiveRoot?.folder(path);
-          await visit(item.id, `${path}/`);
+          await visit(item.id, archiveRoot, texts, `${path}/`);
         } else if (item.file) {
           if (!includeZip && !isText(item)) continue;
           onProgress(`Downloading ${item.name}…`);
@@ -215,25 +231,36 @@ export class TranscriptDrive {
         } else { throw new Error('The Transcripts folder contains an unsupported OneDrive item.'); }
       }
     };
-    if (folder) await visit(folder.id);
-    texts.sort((a, b) => a.created - b.created || a.path.localeCompare(b.path));
-    const completeText = `COMPLETE.txt\n\n${texts.map(entry => entry.text).join('\n\n--\n\n')}`;
+    for (const destination of destinations) {
+      const folder = await this.folder(token, false, destination);
+      const archiveRoot = zip?.folder(destination), texts = [];
+      if (folder) await visit(folder.id, archiveRoot, texts);
+      texts.sort((a, b) => a.created - b.created || a.path.localeCompare(b.path));
+      const body = texts.map(entry => entry.text).join('\n\n--\n\n');
+      archiveRoot?.file('COMPLETE.txt', `COMPLETE.txt\n\n${body}`);
+      combined.push(destinations.length > 1 ? `${destination}\n\n${body}` : body);
+      count += texts.length;
+    }
+    const completeText = `COMPLETE.txt\n\n${combined.join('\n\n--\n\n')}`;
     let blob = null;
     if (includeZip) {
-      archiveRoot.file('COMPLETE.txt', completeText);
+      if (destinations.length > 1) zip.file('COMPLETE.txt', completeText);
       onProgress('Creating ZIP…');
       blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
     }
-    return { blob, name: `${TRANSCRIPT_FOLDER}_${uploadFilename(this.now()).replace(/\.txt$/, '')}.zip`, count: texts.length, completeText };
+    return { blob, name: `${destinations.length === 1 ? destinations[0] : 'OneDrive'}_${uploadFilename(this.now()).replace(/\.txt$/, '')}.zip`, count, completeText };
   }
 
-  async clear(confirm, onProgress = () => {}) {
+  async clear(confirm, onProgress = () => {}, { folders } = {}) {
+    const destinations = selectedFolders(folders);
     const token = await this.token();
-    const folder = await this.folder(token);
-    if (!folder) return { count: 0, cancelled: false };
     // Only direct .txt files qualify. Never delete the folder, subfolders,
     // non-text files, or anything else in the application's root.
-    const files = (await this.children(token, folder.id)).filter(isText);
+    const files = [];
+    for (const destination of destinations) {
+      const folder = await this.folder(token, false, destination);
+      if (folder) files.push(...(await this.children(token, folder.id)).filter(isText));
+    }
     if (!files.length) return { count: 0, cancelled: false };
     if (!await confirm(files.length)) return { count: 0, cancelled: true };
     let count = 0;
@@ -241,7 +268,7 @@ export class TranscriptDrive {
       for (const item of files) {
         if (!item.eTag) throw new Error('A OneDrive file has no version information. Try again.');
         const fresh = await (await this.request(token, `${itemPath(item.id)}?$select=id,name,file,folder,remoteItem,parentReference,eTag`)).json();
-        checkChild(fresh, folder.id);
+        checkChild(fresh, item.parentReference.id);
         if (!isText(fresh) || fresh.name !== item.name || fresh.eTag !== item.eTag) {
           throw new Error('A file changed during clearing. Try Clear Drive again.');
         }

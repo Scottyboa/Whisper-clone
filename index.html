@@ -6,12 +6,12 @@
   <meta name="referrer" content="no-referrer">
   <title>Whisper-clone</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="style.css?v=20261017-flac2">
+  <link rel="stylesheet" href="style.css?v=20261018-folders1">
   <script defer src="vendor/ort/ort.min.js"></script>
   <script defer src="vendor/vad/bundle.min.js"></script>
   <script defer src="vendor/msal/msal-browser.min.js"></script>
   <script defer src="vendor/jszip/jszip.min.js"></script>
-  <script type="module" src="js/app.mjs?v=20261017-flac2"></script>
+  <script type="module" src="js/app.mjs?v=20261018-folders1"></script>
 </head>
 <body>
   <div class="privacy-controls">
@@ -157,7 +157,7 @@
         <ol>
           <li>Finishes the current recording and prepares its full-length FLAC download in the background.</li>
           <li>Starts a fresh recording once the previous audio has been finalized.</li>
-          <li>Transcribes the previous audio with speaker labels in the background, then uploads the finished TXT to OneDrive.</li>
+          <li>Transcribes the previous audio with speaker labels in the background, then uploads the finished TXT to both Original (Transcripts) and temp in OneDrive.</li>
         </ol>
         <p>The TXT filename includes the complete recording interval and the audio duration after VAD. Approving or blocking the local download does not control transcription or the transcript upload. A Soniox key and Microsoft connection are needed for the full workflow.</p>
         <p>To finish recording without an automatic restart, use ordinary <strong>Stop</strong>.</p>
@@ -195,11 +195,11 @@
       </section>
       <section aria-labelledby="guideDrive">
         <h3 id="guideDrive">OneDrive files</h3>
-        <p>The app uses its own OneDrive app folder. <strong>Transcripts</strong> contains saved text; <strong>DeviceControl</strong> contains temporary device status, commands and replies. Audio downloads are saved locally, not uploaded to OneDrive by this app.</p>
+        <p>The app uses its own OneDrive app folder. <strong>Original (Transcripts)</strong>, <strong>translations</strong> and <strong>temp</strong> hold saved text; <strong>DeviceControl</strong> contains temporary device status, commands and replies. Audio downloads are saved locally, not uploaded to OneDrive by this app.</p>
         <table class="guide-table"><thead><tr><th scope="col">Button</th><th scope="col">What happens</th></tr></thead><tbody>
-          <tr><th scope="row">EX.Drive</th><td>Saves the current transcript field as a new TXT file named with the export date and time. Automatic recording transcripts instead use their recording interval and VAD audio duration.</td></tr>
-          <tr><th scope="row">Imp. Drive</th><td>Offers two options, both checked by default: insert the combined COMPLETE.txt into the transcript field, and download a ZIP with the individual files and COMPLETE.txt. Choose either or both. Inserting replaces the current transcript field. Uncheck both to change Import to Exit, or close the prompt with its red ×.</td></tr>
-          <tr><th scope="row">Clear Drive</th><td>After confirmation, deletes the TXT files directly inside Transcripts. Other files and device status are kept.</td></tr>
+          <tr><th scope="row">EX.Drive</th><td>Choose one or more folders: Original (Transcripts), translations and temp. Saves the current text to each selected folder as a new timestamped TXT. Stop and transcribe automatically saves to both Original and temp, using the recording interval and VAD duration.</td></tr>
+          <tr><th scope="row">Imp. Drive</th><td>Choose which folders to import. Then choose insert COMPLETE.txt into the transcript field, download ZIP, or both. These two output options are checked by default. Multiple folders are combined with folder headings; the ZIP preserves each folder and includes a combined COMPLETE.txt. Inserting replaces the current transcript field. With no folders or no output options selected, the button becomes Exit. The red × also closes the prompt.</td></tr>
+          <tr><th scope="row">Clear Drive</th><td>Choose which folders to clear, then confirm deletion. Deletes only TXT files directly inside those folders. Unselected folders, subfolders, other files and device status are kept.</td></tr>
         </tbody></table>
         <p>COMPLETE.txt is assembled during import from the saved text files in chronological order. The imported individual text copies and COMPLETE.txt include filename headings above their text.</p>
       </section>
@@ -222,11 +222,18 @@
     </div>
   </dialog>
   <dialog id="driveImportDialog" class="drive-import-dialog" aria-labelledby="driveImportTitle">
-    <button id="driveImportClose" class="drive-import-close" type="button" aria-label="Close import options">×</button>
+    <button id="driveImportClose" class="drive-import-close" type="button" aria-label="Close OneDrive options">×</button>
     <h2 id="driveImportTitle">Import from OneDrive</h2>
-    <label class="drive-import-option"><input id="driveImportPaste" type="checkbox" checked><span>Insert COMPLETE.txt into the transcript field</span></label>
-    <label class="drive-import-option"><input id="driveImportZip" type="checkbox" checked><span>Download the ZIP file</span></label>
-    <p class="drive-import-help">Inserting COMPLETE.txt replaces the current transcript.</p>
+    <fieldset class="drive-folder-options"><legend>Folders</legend>
+      <label class="drive-import-option"><input id="driveFolderOriginal" type="checkbox" checked><span>Original (Transcripts)</span></label>
+      <label class="drive-import-option"><input id="driveFolderTranslations" type="checkbox"><span>translations</span></label>
+      <label class="drive-import-option"><input id="driveFolderTemp" type="checkbox"><span>temp</span></label>
+    </fieldset>
+    <fieldset id="driveImportOutputs" class="drive-folder-options"><legend>Import output</legend>
+      <label class="drive-import-option"><input id="driveImportPaste" type="checkbox" checked><span>Insert COMPLETE.txt into the transcript field</span></label>
+      <label class="drive-import-option"><input id="driveImportZip" type="checkbox" checked><span>Download the ZIP file</span></label>
+    </fieldset>
+    <p id="driveImportHelp" class="drive-import-help">Inserting COMPLETE.txt replaces the current transcript.</p>
     <div class="dialog-buttons"><button id="driveImportApply" class="primary" type="button">Import</button></div>
   </dialog>
   <dialog id="abortDialog" aria-labelledby="abortQuestion">

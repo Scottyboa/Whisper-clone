@@ -367,7 +367,34 @@ test('Drive import defaults to both choices and pastes the exact COMPLETE text w
   h.el('driveImportApply').listeners.get('click')();await work;
   assert.equal(h.el('transcript').value,'COMPLETE.txt\n\nrecording.txt\n\nSpeaker 1: Imported text');
   assert.equal(h.downloads.length,1);assert.equal(h.downloads[0].name,'Transcripts.zip');assert.equal(h.importCalls[0].includeZip,true);
+  assert.deepEqual(Array.from(h.importCalls[0].folders),['Transcripts']);
   assert.equal(h.el('driveImportDialog').open,false);assert.equal(h.recorder.state,'recording');assert.equal(h.el('exportDrive').disabled,false);
+});
+
+test('all Drive buttons offer folder checkboxes, and empty selections exit without work',async()=>{
+  for(const [button,label] of [['exportDrive','Export'],['importDrive','Import'],['clearDrive','Clear']]) {
+    const h=harness();h.el('transcript').value='Current text';
+    const work=h.el(button).listeners.get('click')();
+    assert.equal(h.el('driveFolderOriginal').checked,true);
+    assert.equal(h.el('driveFolderTranslations').checked,false);assert.equal(h.el('driveFolderTemp').checked,false);
+    assert.equal(h.el('driveImportApply').textContent,label);
+    assert.equal(h.el('driveImportOutputs').hidden,button!=='importDrive');
+    h.el('driveFolderOriginal').checked=false;h.el('driveFolderOriginal').listeners.get('change')();
+    assert.equal(h.el('driveImportApply').textContent,'Exit');
+    h.el('driveImportApply').listeners.get('click')();await work;
+    assert.equal(h.uploads.length,0);assert.equal(h.importCalls.length,0);assert.equal(h.el('transcript').value,'Current text');
+  }
+});
+
+test('manual export can target translations and temp together while automatic exports always select Original and temp',async()=>{
+  const h=harness();h.el('transcript').value='Edited translation';
+  const work=h.el('exportDrive').listeners.get('click')();
+  h.el('driveFolderOriginal').checked=false;h.el('driveFolderTranslations').checked=true;h.el('driveFolderTemp').checked=true;
+  h.el('driveImportApply').listeners.get('click')();await work;
+  assert.deepEqual(Array.from(h.uploads[0].options.folders),['translations','temp']);assert.equal(h.uploads[0].text,'Edited translation');
+  await h.mail.onCommand('start');await h.mail.onCommand('stop-and-transcribe');await tick();
+  assert.deepEqual(Array.from(h.uploads[1].options.folders),['Transcripts','temp']);
+  assert.equal(h.recorder.state,'recording');
 });
 
 test('Drive import supports paste-only and ZIP-only independently',async()=>{

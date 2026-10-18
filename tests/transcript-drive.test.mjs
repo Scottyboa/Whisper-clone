@@ -12,15 +12,80 @@ const file = (id, name, parent = folder.id, extra = {}) => ({
 });
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-function harness({ missing = false, files = [], nested = {}, contents = {}, pages = {}, intercept } = {}) {
+test('multi-folder upload uses one filename, exact text and account for all destinations', async () => {
+  const h=harness({missingFolders:['Transcripts','translations','temp']});
+  const name=await h.drive.upload('日本語\nTranslated text',{folders:['Transcripts','translations','temp'],interactive:false,account});
+  assert.deepEqual(h.calls.filter(c=>c.method==='POST').map(c=>JSON.parse(c.body).name),['Transcripts','translations','temp']);
+  const puts=h.calls.filter(c=>c.method==='PUT');assert.equal(puts.length,3);
+  for(const call of puts){assert.equal(call.body,'日本語\nTranslated text');assert.ok(decodeURIComponent(call.url.pathname).endsWith('/'+name+':/content'));}
+  assert.equal(h.authCalls.length,1);
+});
+
+test('automatic dual upload attempts both folders and reports partial failures accurately',async()=>{
+  for(const failed of ['transcripts','temp']) {
+    const h=harness({intercept:({url,method})=>method==='PUT'&&url.pathname.includes('/items/'+failed+':/')?json({},503):null});
+    await assert.rejects(h.drive.upload('Keep this',{folders:['Transcripts','temp'],interactive:false,account}),error=>{
+      assert.match(error.message,/Saved to/);assert.match(error.message,/Failed to save/);assert.match(error.message,/Retry only the failed folders/);return true;
+    });
+    assert.equal(h.calls.filter(c=>c.method==='PUT').length,2);
+    assert.equal(h.authCalls.length,1);
+  }
+});
+
+test('selected folder imports preserve separate folders and produce an identical combined COMPLETE for ZIP and paste',async()=>{
+  const h=harness({files:[file('original','a.txt')],byFolder:{translations:[file('translated','b.txt','translations')],temp:[file('temporary','c.txt','temp')]},contents:{original:'原文',translated:'English',temporary:'Temporary'}});
+  const result=await h.drive.exportZip(()=>{},{folders:['Transcripts','translations','temp']});
+  const zip=await JSZip.loadAsync(await result.blob.arrayBuffer(),{checkCRC32:true});
+  assert.equal(result.count,3);
+  assert.equal(await zip.file('COMPLETE.txt').async('string'),result.completeText);
+  for(const path of ['Transcripts/a.txt','translations/b.txt','temp/c.txt','Transcripts/COMPLETE.txt','translations/COMPLETE.txt','temp/COMPLETE.txt'])assert.ok(zip.file(path),path);
+  assert.match(result.completeText,/Transcripts\n\na.txt\n\n原文/);assert.match(result.completeText,/translations\n\nb.txt\n\nEnglish/);
+  h.calls.length=0;h.drive.zipFactory=()=>assert.fail('Paste-only must not build ZIP');
+  const paste=await h.drive.exportZip(()=>{},{folders:['Transcripts','translations','temp'],includeZip:false});
+  assert.equal(paste.completeText,result.completeText);assert.equal(paste.blob,null);
+  assert.ok(h.calls.every(c=>c.method==='GET'));
+});
+
+test('temp-only import and clear leave Original and translations untouched',async()=>{
+  const h=harness({files:[file('original','a.txt')],byFolder:{translations:[file('translated','b.txt','translations')],temp:[file('temporary','c.txt','temp'),file('binary','keep.bin','temp')]},contents:{temporary:'Temp'}});
+  const imported=await h.drive.exportZip(()=>{},{folders:['temp'],includeZip:false});
+  assert.equal(imported.count,1);assert.match(imported.completeText,/c.txt\n\nTemp/);
+  assert.ok(h.calls.every(c=>!c.url.pathname.includes(':/Transcripts')&&!c.url.pathname.includes(':/translations')));
+  const result=await h.drive.clear(()=>true,()=>{},{folders:['temp']});assert.equal(result.count,1);
+  assert.deepEqual(h.calls.filter(c=>c.method==='DELETE').map(c=>c.url.pathname),['/v1.0/me/drive/items/temporary']);
+  for(const id of ['original','translated','binary'])assert.ok(h.items.has(id));
+});
+
+test('clearing multiple folders confirms the total once and cancellation deletes nothing',async()=>{
+  const make=()=>harness({files:[file('original','a.txt')],byFolder:{temp:[file('temporary','b.txt','temp')]}});
+  const h=make();let confirmations=0;
+  assert.equal((await h.drive.clear(count=>{confirmations++;assert.equal(count,2);return true;},()=>{},{folders:['Transcripts','temp']})).count,2);
+  assert.equal(confirmations,1);assert.equal(h.calls.filter(c=>c.method==='DELETE').length,2);
+  const cancel=make();assert.equal((await cancel.drive.clear(()=>false,()=>{},{folders:['Transcripts','temp']})).cancelled,true);
+  assert.equal(cancel.calls.filter(c=>c.method==='DELETE').length,0);
+});
+
+test('empty or unsupported folder selections fail before authentication or requests',async()=>{
+  for(const folders of [[],['../outside'],['DeviceControl'],'temp']) {
+    const h=harness();
+    await assert.rejects(h.drive.upload('text',{folders}),/supported OneDrive folder/);
+    await assert.rejects(h.drive.exportZip(()=>{},{folders}),/supported OneDrive folder/);
+    await assert.rejects(h.drive.clear(()=>true,()=>{},{folders}),/supported OneDrive folder/);
+    assert.equal(h.calls.length,0);assert.equal(h.authCalls.length,0);
+  }
+});
+
+function harness({ missing = false, files = [], nested = {}, contents = {}, pages = {}, byFolder = {}, missingFolders = [], intercept } = {}) {
   const calls = [], authCalls = [];
+  const folders = {Transcripts:folder,translations:{...folder,id:'translations',name:'translations'},temp:{...folder,id:'temp',name:'temp'}};
+  const absent = new Set([...missingFolders,...(missing ? ['Transcripts'] : [])]);
   const auth = {
     getAllAccounts: () => [account],
     acquireTokenSilent: async options => { authCalls.push(['silent', options]); return { account, accessToken: 'graph-token' }; },
     acquireTokenPopup: async options => { authCalls.push(['popup', options]); return { account, accessToken: 'graph-token' }; },
     loginPopup: async options => { authCalls.push(['login', options]); return { account, accessToken: 'graph-token' }; },
   };
-  const items = new Map([...files, ...Object.values(nested).flat(), ...Object.values(pages).flat()].map(item => [item.id, item]));
+  const items = new Map([...files, ...Object.values(nested).flat(), ...Object.values(pages).flat(), ...Object.values(byFolder).flat()].map(item => [item.id, item]));
   const fetcher = async (input, options = {}) => {
     const url = new URL(input), method = options.method || 'GET', headers = new Headers(options.headers);
     calls.push({ url, method, headers, body: options.body });
@@ -35,8 +100,9 @@ function harness({ missing = false, files = [], nested = {}, contents = {}, page
     assert.equal(headers.get('Authorization'), 'Bearer graph-token');
     const p = decodeURIComponent(url.pathname);
     if (p === '/v1.0/me/drive/special/approot') return json(root);
-    if (p === '/v1.0/me/drive/items/app-root:/Transcripts') return missing ? json({}, 404) : json(folder);
-    if (p === '/v1.0/me/drive/items/app-root/children' && method === 'POST') { missing = false; return json(folder, 201); }
+    const location = Object.entries(folders).find(([name]) => p === '/v1.0/me/drive/items/app-root:/'+name);
+    if (location) return absent.has(location[0]) ? json({},404) : json(location[1]);
+    if (p === '/v1.0/me/drive/items/app-root/children' && method === 'POST') { const name=JSON.parse(options.body).name;absent.delete(name);return json(folders[name],201); }
     if (p.includes(':/content') && method === 'PUT') {
       assert.equal(url.searchParams.get('@microsoft.graph.conflictBehavior'), 'fail');
       return json({ id: 'uploaded' }, 201);
@@ -45,7 +111,8 @@ function harness({ missing = false, files = [], nested = {}, contents = {}, page
     if (list) {
       const id = list[1];
       if (url.searchParams.has('$skiptoken')) return json({ value: pages[id] || [] });
-      const value = id === folder.id ? files : nested[id] || [];
+      const location=Object.values(folders).find(f=>f.id===id);
+      const value = location ? (byFolder[location.name] || (id === folder.id ? files : [])) : nested[id] || [];
       return json({ value, ...(pages[id] ? { '@odata.nextLink': `${url.origin}${url.pathname}?$skiptoken=next` } : {}) });
     }
     const match = /^\/v1.0\/me\/drive\/items\/([^/]+)$/.exec(p);

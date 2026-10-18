@@ -52,3 +52,5 @@ header{flex-wrap:wrap}.main-heading{display:flex;align-items:center;gap:18px;fle
 @media(max-width:620px){.guide-heading{padding:14px 18px}.guide-content{padding:16px 18px 22px}.guide-table th,.guide-table td{padding:9px 7px}.main-heading{gap:14px}}
 
 #audioDownloadStatus{font-size:13px;color:#6d7b74;overflow-wrap:anywhere}#audioDownloadStatus:not(:empty){margin-top:6px;min-height:22px}#audioDownloadStatus.error{color:#a23732}
+
+.drive-folder-options{border:1px solid #dce5df;border-radius:8px;padding:0 14px;margin:16px 0}.drive-folder-options legend{font-size:13px;font-weight:600;color:#42584b;padding:0 6px}.drive-folder-options .drive-import-option{margin:12px 0}

@@ -47,7 +47,7 @@ test('Chrome module worker downloads playable FLAC, restarts before encoding and
       constructor(options){super({...options,now:()=>window.testNow,createVAD:async callbacks=>({async drainAndPause(){callbacks.onSpeechEnd(new Float32Array(16000).fill(.25),[[0,16000,window.testNow-2000]])},destroy(){}})});window.testRecorder=this;}}`,
     '/js/graph.mjs': `export class MailControl {constructor(options){Object.assign(this,options);window.testCommand=options.onCommand;this.active=false}async client(){return {}}unlink(){}}`,
     '/js/device-control.mjs': `export const RECENT_MS=10000;export class DeviceControl {constructor(options){Object.assign(this,options);this.active=false;this.rows=[];this.pending=new Map()}async connect(){}disconnect(){}}`,
-    '/js/transcript-drive.mjs': `export class TranscriptDrive {async upload(text,options){window.testUploads.push({text,name:options.name});return options.name}}`,
+    '/js/transcript-drive.mjs': `export class TranscriptDrive {async upload(text,options){window.testUploads.push({text,name:options.name,folders:options.folders});return options.name}}`,
   };
   const server = createServer(async (request, response) => {
     try {
@@ -92,6 +92,7 @@ test('Chrome module worker downloads playable FLAC, restarts before encoding and
     await cdp('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads });
     const { targetId } = await cdp('Target.createTarget', { url: `http://127.0.0.1:${server.address().port}/` });
     const { sessionId } = await cdp('Target.attachToTarget', { targetId, flatten: true });
+    await cdp('Emulation.setTimezoneOverride', { timezoneId: 'Europe/Oslo' }, sessionId);
     const evaluate = async expression => {
       const result = await cdp('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, sessionId);
       if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
@@ -108,6 +109,7 @@ test('Chrome module worker downloads playable FLAC, restarts before encoding and
       await evaluate("document.getElementById('audioDownloadStatus').textContent"));
     for (let i = 0; i < 100 && !await evaluate('window.testUploads.length'); i++) await delay(50);
     assert.equal(await evaluate('window.testUploads.length'), 1);
+    assert.deepEqual(await evaluate('window.testUploads[0].folders'), ['Transcripts','temp']);
     assert.equal(await evaluate('window.testPayloads[0].size'), 32044);
     const playback = await evaluate(`(async()=>{const blob=await(await fetch('/saved.flac')).arrayBuffer();
       const context=new AudioContext({sampleRate:16000});try{const decoded=await context.decodeAudioData(blob);
@@ -123,6 +125,18 @@ test('Chrome module worker downloads playable FLAC, restarts before encoding and
     assert.equal(await evaluate('window.testPayloads[1].name'), 'saved.wav');
     for (let i = 0; i < 100 && !await evaluate("document.getElementById('transcript').value.includes('日本語')"); i++) await delay(50);
     assert.match(await evaluate("document.getElementById('transcript').value"), /\(14:00:08\) Speaker 1: 日本語 Test/);
+    for (const [button,label] of [['exportDrive','Export'],['importDrive','Import'],['clearDrive','Clear']]) {
+      const options = await evaluate(`(()=>{document.getElementById('${button}').click();return {
+        open:document.getElementById('driveImportDialog').open,label:document.getElementById('driveImportApply').textContent,
+        outputHidden:document.getElementById('driveImportOutputs').hidden,
+        original:document.getElementById('driveFolderOriginal').checked};})()`);
+      assert.equal(options.open,true);assert.equal(options.label,label);assert.equal(options.original,true);
+      assert.equal(options.outputHidden,button!=='importDrive');
+      await evaluate("document.getElementById('driveFolderOriginal').click()");
+      assert.equal(await evaluate("document.getElementById('driveImportApply').textContent"),'Exit');
+      await evaluate("document.getElementById('driveImportClose').click()");
+      assert.equal(await evaluate('window.testRecorder.state'),'recording');
+    }
     await evaluate("window.testCommand('abort')");
     assert.equal(await evaluate('window.testRecorder.state'), 'idle');
   } finally {
