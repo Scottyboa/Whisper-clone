@@ -1,7 +1,7 @@
-import { Recorder } from './recorder.mjs?v=20261017-flac2';
+import { Recorder } from './recorder.mjs?v=20261021-sound1';
 import { createDriveImportPrompt } from './drive-import-prompt.mjs?v=20261018-folders1';
-import { DeviceControl } from './device-control.mjs?v=20261015-devices3';
-import { DevicesPanel, createAbortPrompt } from './devices-panel.mjs?v=20261015-devices3';
+import { DeviceControl } from './device-control.mjs?v=20261021-sound1';
+import { DevicesPanel, createAbortPrompt } from './devices-panel.mjs?v=20261021-sound1';
 import { clock, duration, dateStamp, timeStamp, recordingName, recordingTranscriptName, download } from './audio.mjs?v=20261015-clock1';
 import { MailControl } from './graph.mjs?v=20261015-devices1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';
@@ -51,6 +51,7 @@ function bootstrap() {
   let panel;
   const devices = new DeviceControl({drive,execute:runCommand,name:deviceName,
     getStatus:()=>({state:recorder.state,startedAt:recorder.startedAt,transcribing,uploading:driveBusy,
+      inputActivityVersion:1,lastSoundAt:recorder.lastSoundAt,
       audioReady:!!recorder.context && recorder.context.state !== 'closed'}),onChange:()=>panel?.render()});
   async function connectDevices() {
     const audio = recorder.unlock();

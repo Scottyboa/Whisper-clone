@@ -1,3 +1,4 @@
+import { inputActivityInfo } from './input-activity.mjs?v=20261021-sound1';
 const FOLDER = 'DeviceControl';
 const itemPath = id => `/me/drive/items/${encodeURIComponent(id)}`;
 const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
@@ -74,11 +75,11 @@ export class DeviceControl {
   fresh(generation) { return this.active && generation === this.generation; }
   auth() { return this.drive.token({interactive:false,account:this.account}); }
   snapshot() {
-    const raw = this.getStatus();
-    return { schema:SCHEMA, type:'session', sessionId:this.id, name:this.name, at:this.now(),
+    const raw = this.getStatus(), at = this.now();
+    return { schema:SCHEMA, type:'session', sessionId:this.id, name:this.name, at,
       state:STATES.has(raw.state) ? raw.state : 'error', transcribing:!!raw.transcribing,
       uploading:!!raw.uploading, audioReady:!!raw.audioReady,
-      startedAt:Number.isFinite(raw.startedAt) ? raw.startedAt : null };
+      startedAt:Number.isFinite(raw.startedAt) ? raw.startedAt : null, ...inputActivityInfo(raw, at) };
   }
   async publishPresence(token, generation, force = false) {
     if (!this.fresh(generation)) return;
@@ -243,7 +244,9 @@ export class DeviceControl {
         const value = await this.read(token,item);
         if (value?.schema === SCHEMA && value.type === 'session' && value.sessionId === match[1] &&
             Number.isFinite(value.at) && value.at <= this.now()+5000 && this.now()-value.at<RECENT_MS && STATES.has(value.state)) {
-          rows.push({...value,name:cleanName(value.name),local:false});
+          // Unknown/malformed activity data is unavailable, never "no sound".
+          const {inputActivityVersion,lastSoundAt,...session}=value;
+          rows.push({...session,...inputActivityInfo(value,value.at),name:cleanName(value.name),local:false});
         }
       } catch (error) { if (error.retryMs) throw error; }
     }

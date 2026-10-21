@@ -102,16 +102,19 @@ test('real pinned VAD maps captured frames despite inference delay, silence, pau
   let frame=0;
   const send=(count,prob)=>{for(let i=0;i<count;i++,frame++){const data=new Float32Array(1536).fill(prob);capture.port.onmessage({data:{message:'AUDIO_FRAME',data:data.buffer,audioTime:frame*0.096}});}};
   try {
-    await recorder.command('start');send(100,0);send(4,1);send(5,0);
+    await recorder.command('start');send(100,0);assert.equal(recorder.lastSoundAt,null);
+    send(4,1);send(5,0);assert.equal(recorder.lastSoundAt,epoch);
     // Processing these queued frames later must not timestamp them five minutes late.
-    now+=300000;await recorder.command('pause');
-    now+=300000;frame=0;await recorder.command('resume');send(50,0);send(3,1);
+    now+=300000;await recorder.command('pause');assert.equal(recorder.lastSoundAt,epoch);
+    now+=300000;frame=0;await recorder.command('resume');send(50,0);assert.equal(recorder.lastSoundAt,epoch);
+    send(3,1);assert.equal(recorder.lastSoundAt,now);
     const {blob,entry}=await recorder.command('stop');const prepared=await prepareAudio(asFile(blob));
     assert.ok(prepared.timing);assert.equal(entry.audioMs,(11+5)*96);
     assert.equal(clockAt(prepared.timing,192),epoch+9600);
     // Pause/resume gap survives, though all silence was removed from the WAV.
     assert.equal(clockAt(prepared.timing,11*96+192),epoch+600000+4800);
     assert.equal(prepared.file.size,44+(11+5)*1536*2);
+    assert.equal(recorder.lastSoundAt,now);
   }finally{globalThis.AudioWorkletNode=original;}
 });
 
@@ -158,13 +161,16 @@ test('ScriptProcessor fallback timestamps real captured buffers and flushes the 
     }},options);mic.start();return mic;
   }});
   await recorder.command('start');
+  assert.equal(recorder.lastSoundAt,null);
   for(let i=0;i<100;i++){
     context.currentTime=(i+1)*seconds;
     mic.audioNodeVAD.audioNode.onaudioprocess({inputBuffer:{duration:seconds,getChannelData:()=>new Float32Array(size).fill(i<90?0:1)},outputBuffer:{getChannelData:()=>new Float32Array(size)}});
+    assert.equal(recorder.lastSoundAt,i<90?null:epoch,'observe each native buffer before inference');
     await new Promise(resolve=>setImmediate(resolve));
   }
   now+=100000;
   const {blob}=await recorder.command('stop'),prepared=await prepareAudio(asFile(blob));
+  assert.equal(recorder.lastSoundAt,epoch,'final resampler padding does not refresh the sound clock');
   assert.ok(prepared.timing);
   // First retained pre-speech padding is near the actual 7.68s speech onset,
   // never near the delayed Stop callback at 100 seconds.

@@ -93,6 +93,20 @@ test('FLAC preparation never gates automatic restart, transcription, upload or A
   assert.equal(h.recorder.state,'idle');assert.equal(h.uploads.length,1);
 });
 
+test('Devices receives the input sound clock and automatic recording restart resets it',async()=>{
+  const h=harness();await h.devices.execute('start');
+  assert.equal(h.devices.getStatus().inputActivityVersion,1);assert.equal(h.devices.getStatus().lastSoundAt,null);
+  h.advance(10000);h.captures[0].onInputFrame(new Float32Array(1536).fill(0.1));
+  const heard=h.devices.getStatus().lastSoundAt;assert.equal(heard,h.recorder.now());
+  await h.devices.execute('pause');h.advance(60000);await h.devices.execute('resume');
+  assert.equal(h.devices.getStatus().lastSoundAt,heard);
+  await h.devices.execute('stop-and-transcribe');await tick();
+  assert.equal(h.devices.getStatus().state,'recording');assert.equal(h.devices.getStatus().lastSoundAt,null);
+  assert.equal(h.transcriptions.length,1);assert.equal(h.uploads.length,1);
+  h.captures.at(-1).onInputFrame(new Float32Array(1536).fill(0.1));
+  assert.equal(h.devices.getStatus().lastSoundAt,h.recorder.now());
+});
+
 test('a fully silent timed recording downloads a full-length FLAC without calling Soniox',async()=>{
   const h=harness({speech:false,timed:true});await h.mail.onCommand('start');h.advance(30000);
   await h.mail.onCommand('stop-and-transcribe');assert.equal(h.recorder.state,'recording');

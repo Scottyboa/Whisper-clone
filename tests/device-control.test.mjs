@@ -110,6 +110,30 @@ test('presence lists both tabs under the same account with independent identitie
   assert.ok(n.calls.every(c=>!c.url.pathname.includes('/Transcripts')));
 });
 
+test('sound activity shares the existing heartbeat, stays unchanged during silence and supports old tabs',async()=>{
+  const n=network(),a=n.make('Work'),b=n.make('Home');
+  Object.assign(a.state,{inputActivityVersion:1,lastSoundAt:null});
+  Object.assign(b.state,{inputActivityVersion:1,lastSoundAt:null});
+  await a.device.connect();await b.device.connect();await a.device.refresh();
+  const home=()=>a.device.rows.find(row=>row.sessionId===b.device.id);
+  assert.equal(home().lastSoundAt,null);assert.equal(home().inputActivityVersion,1);
+  const name=`session-${b.device.id}.json`,file=[...n.files.values()].find(f=>f.name===name);
+  b.state.lastSoundAt=n.now();const heard=n.now();
+  for(let cycle=0;cycle<3;cycle++){
+    n.advance(5000);await b.device.runCycle();await a.device.runCycle();
+    assert.equal(home().lastSoundAt,heard);assert.equal(home().at,n.now());
+    assert.equal(n.files.size,2);assert.equal([...n.files.values()].find(f=>f.name===name).id,file.id);
+  }
+  const stored=JSON.parse(file.text);
+  assert.deepEqual(Object.keys(stored).sort(),['schema','type','sessionId','name','at','state','transcribing','uploading','audioReady','startedAt','inputActivityVersion','lastSoundAt'].sort());
+  delete b.state.inputActivityVersion;delete b.state.lastSoundAt;
+  n.advance(5000);await b.device.runCycle();await a.device.runCycle();
+  assert.equal(home().state,'idle');assert.equal('inputActivityVersion' in home(),false);assert.equal('lastSoundAt' in home(),false);
+  // A malformed optional field must not remove a compatible tab or claim silence.
+  n.write(name,{...JSON.parse(file.text),inputActivityVersion:1,lastSoundAt:'bad timestamp'});
+  await a.device.refresh();assert.ok(home());assert.equal('inputActivityVersion' in home(),false);
+});
+
 test('heartbeats overwrite one file per session and automatically refresh other live tabs',async()=>{
   const n=network(),a=n.make('This computer'),b=n.make('This computer');
   await a.device.connect();await b.device.connect();

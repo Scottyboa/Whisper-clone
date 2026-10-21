@@ -1,4 +1,5 @@
-import { RECENT_MS } from './device-control.mjs?v=20261015-devices3';
+import { RECENT_MS } from './device-control.mjs?v=20261021-sound1';
+import { inputActivityLabel } from './input-activity.mjs?v=20261021-sound1';
 const labels = {start:'Start',pause:'Pause',resume:'Resume',stop:'Stop','stop-and-transcribe':'Stop and transcribe',abort:'Abort'};
 const stateLabels = {idle:'Ready',starting:'Starting…',recording:'Recording',pausing:'Pausing…',paused:'Paused',resuming:'Resuming…',stopping:'Finishing…',aborting:'Discarding…',error:'Audio error'};
 export function createAbortPrompt({dialog, text, yes, no}) {
@@ -58,8 +59,9 @@ export class DevicesPanel {
       button.setAttribute('aria-pressed',String(row.sessionId===this.selected));button.className='device-select';
       button.addEventListener('click',()=>{this.selected=row.sessionId;this.render();});name.append(button);tr.append(name);
       const status=document.createElement('td');status.textContent=`${stateLabels[row.state]||row.state}${row.transcribing?' · Transcribing':''}${row.uploading?' · Drive busy':''}${!row.audioReady?' · Enable audio locally':''}`;
+      const sound=document.createElement('td');sound.textContent=inputActivityLabel(row,this.now());
       const seen=document.createElement('td'),age=Math.max(0,this.now()-row.at);seen.textContent=`${Math.floor(age/1000)}s ago`;
-      if(row.sessionId===this.selected)tr.classList.add('selected');tr.append(status,seen);$('deviceRows').append(tr);
+      if(row.sessionId===this.selected)tr.classList.add('selected');tr.append(status,sound,seen);$('deviceRows').append(tr);
     }
     $('devicesEmpty').hidden=rows.length>0;
     const row=rows.find(row=>row.sessionId===this.selected),recent=!!row;

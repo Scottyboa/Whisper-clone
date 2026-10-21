@@ -40,6 +40,24 @@ test('selecting a row enables appropriate controls and only sends to that select
   }finally{h.restore();}
 });
 
+test('Devices shows local and remote sound clocks, elapsed age, no-sound and unsupported states',()=>{
+  const h=setup();try{
+    let now=new Date(2026,9,21,16,3,20).getTime();h.panel.now=()=>now;
+    const [work,home]=h.devices.rows;
+    Object.assign(work,{at:now,inputActivityVersion:1,lastSoundAt:null});
+    Object.assign(home,{at:now,inputActivityVersion:1,lastSoundAt:now-8000});
+    const sound=index=>h.$('deviceRows').children[index].children[2].textContent;
+    h.panel.render();assert.equal(sound(0),'No sound detected yet');assert.equal(sound(1),'16:03:12 · 8s ago');
+    now+=1000;h.panel.render();assert.equal(sound(1),'16:03:12 · 9s ago');
+    delete home.inputActivityVersion;h.panel.render();assert.equal(sound(1),'Sound activity unavailable');
+    home.inputActivityVersion=2;h.panel.render();assert.equal(sound(1),'Sound activity unavailable');
+    const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+    const [outside,devices]=html.split('<dialog id="devicesDialog"');
+    assert.equal(outside.includes('Last sound detected'),false);
+    assert.match(devices,/<th>Last sound detected<\/th>/);
+  }finally{h.restore();}
+});
+
 test('an expired selected tab disappears at ten seconds and loses its command controls',async()=>{
   const h=setup();try{
     const home=h.devices.rows[1],seen=home.at;h.panel.selected=home.sessionId;

@@ -4,7 +4,7 @@ import { CaptureTiming } from './capture-timing.mjs?v=20261015-clock1';
 // infer completion: capture acknowledges its last frame, then inference
 // drains in order, then pause emits the final speech segment.
 export async function createDrainableSonioxVAD(factory, options) {
-  let disposed = false, frameEpoch = NaN;
+  let disposed = false, monitoring = true, frameEpoch = NaN;
   const timing = new CaptureTiming(), frameTimes = new WeakMap();
   const guarded = { ...options };
   for (const name of ['onSpeechStart', 'onSpeechEnd', 'onVADMisfire', 'onFrameProcessed']) {
@@ -28,6 +28,9 @@ export async function createDrainableSonioxVAD(factory, options) {
   let drainPromise = null;
   const originalDestroy = mic.destroy.bind(mic);
   mic.destroy = () => { disposed = true; return originalDestroy(); };
+  const observeInput = frame => {
+    if (!disposed && monitoring) options.onInputFrame?.(frame);
+  };
 
   try {
     if (!node?.processFrame || !node.frameProcessor || !mic.audioContext) {
@@ -66,8 +69,13 @@ export async function createDrainableSonioxVAD(factory, options) {
       capture.onprocessorerror = () => rejectCapture(new Error('Audio capture processor failed.'));
       capture.port.onmessage = ({ data }) => {
         if (disposed) return;
-        if (data?.message === 'AUDIO_FRAME') node.processFrame(new Float32Array(data.data),
-          Number.isFinite(data.audioTime) ? audioEpoch + data.audioTime * 1000 : NaN);
+        if (data?.message === 'AUDIO_FRAME') {
+          const frame = new Float32Array(data.data);
+          // Observe delivery before the inference queue. Delayed VAD results
+          // must never make old sound look like newly arriving sound.
+          observeInput(frame);
+          node.processFrame(frame, Number.isFinite(data.audioTime) ? audioEpoch + data.audioTime * 1000 : NaN);
+        }
         else if (data?.message === 'SONIOX_DRAINED') acknowledge();
       };
       mic.sourceNode.disconnect();
@@ -106,6 +114,7 @@ export async function createDrainableSonioxVAD(factory, options) {
         };
       }
       oldNode.onaudioprocess = event => {
+        observeInput(event.inputBuffer.getChannelData(0));
         // ScriptProcessor can skip a busy callback. Timestamp each input buffer
         // independently so a skipped buffer does not shift the remaining audio.
         inputEpoch = audioEpoch + (mic.audioContext.currentTime - event.inputBuffer.duration) * 1000;
@@ -132,6 +141,8 @@ export async function createDrainableSonioxVAD(factory, options) {
 
     mic.drainAndPause = () => {
       if (!drainPromise) {
+        // Final drain/padding belongs to the completed capture, not new sound.
+        monitoring = false;
         drainPromise = (async () => {
           // End microphone capture now; leave the graph/model alive to drain.
           mic.stream.getTracks().forEach(track => track.stop());

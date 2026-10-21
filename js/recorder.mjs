@@ -1,5 +1,6 @@
-import { createDrainableSonioxVAD } from './soniox-vad-drain.mjs?v=20261015-clock1';
+import { createDrainableSonioxVAD } from './soniox-vad-drain.mjs?v=20261021-sound1';
 import { VAD_RULES, SAMPLE_RATE, toPCM, wavBlob } from './audio.mjs?v=20261015-clock1';
+import { hasInputSound } from './input-activity.mjs?v=20261021-sound1';
 
 export class Recorder {
   constructor({ onChange = () => {}, now = Date.now, createVAD } = {}) {
@@ -10,6 +11,7 @@ export class Recorder {
     this.acceptingAudio = false; this.disposed = false;
     this.queue = Promise.resolve();
     this.timingSegments = []; this.timingValid = true; this.discardGeneration = 0;
+    this.lastSoundAt = null; this.captureGeneration = 0;
   }
 
   // Called synchronously by Start/Link, while the user's click can unlock audio.
@@ -77,11 +79,18 @@ export class Recorder {
   }
   async beginCapture() {
     const generation = this.discardGeneration;
+    const capture = ++this.captureGeneration;
     this.acceptingAudio = true;
     this.mic = await this.createVAD({
       ...VAD_RULES, captureNow: this.now,
       onSpeechStart: () => {}, onVADMisfire: () => {},
       onFrameProcessed: () => {},
+      onInputFrame: frame => {
+        if (!this.acceptingAudio || this.disposed || generation !== this.discardGeneration ||
+            capture !== this.captureGeneration || !hasInputSound(frame)) return;
+        const at = this.now();
+        if (Number.isFinite(at) && at > 0) this.lastSoundAt = at;
+      },
       onSpeechEnd: (audio, timing) => {
         if (!this.acceptingAudio || this.disposed || generation !== this.discardGeneration || !audio.length) return;
         if (Array.isArray(timing) && timing.length) {
@@ -118,6 +127,7 @@ export class Recorder {
     if (action === 'start') {
       if (this.state !== 'idle') return;
       this.parts = []; this.samples = 0; this.startedAt = null;
+      this.lastSoundAt = null;
       this.timingSegments = []; this.timingValid = true;
       this.timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
       this.setState('starting');
