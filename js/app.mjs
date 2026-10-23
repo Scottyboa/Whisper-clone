@@ -6,8 +6,9 @@ import { clock, duration, dateStamp, timeStamp, recordingName, recordingTranscri
 import { MailControl } from './graph.mjs?v=20261023-upload1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';
 import { transcribeFile } from './soniox.mjs?v=20261023-upload1';
-import { cancelManualVAD } from './manual-vad.mjs?v=20261023-upload1';
-import { runFlacTask, cancelFlacTasks } from './flac-tasks.mjs?v=20261017-flac2';
+import { prepareManualAudio, cancelManualVAD } from './manual-vad.mjs?v=20261023-upload1';
+import { vadDownloadFile } from './vad-download.mjs?v=20261023-wav1';
+import { cancelFlacTasks } from './flac-tasks.mjs?v=20261017-flac2';
 import { PrivacyView } from './privacy-view.mjs?v=20261014-demo1';
 import { TranscriptDrive } from './transcript-drive.mjs?v=20261018-folders1';
 import { AppGuide } from './app-guide.mjs?v=20261015-guide1';
@@ -25,7 +26,7 @@ function bootstrap() {
   let wakeLock = null, wakeGeneration = 0, importBusy = false;
   let driveBusy = false, drivePending = 0, transcriptionPending = 0;
   let driveQueue = Promise.resolve(), transcriptionQueue = Promise.resolve(), audioDownloadQueue = Promise.resolve();
-  let audioDownloadsPending = 0, pageClosing = false;
+  let audioDownloadsPending = 0, pageClosing = false, vadProcessing = false;
   let commandGeneration = 0;
   $('speakers').checked = true;
   const message = (text = '', error = false) => { $('message').textContent = text; $('message').classList.toggle('error', error); };
@@ -88,9 +89,10 @@ function bootstrap() {
     $('model').textContent = apiKey ? 'Speech-to-Text Model Soniox' : 'Transcript';
     $('speakerControl').hidden = !apiKey;
     $('speakers').disabled = transcribing;
-    $('transcribe').disabled = !apiKey || !file || transcribing;
+    $('vadProcess').disabled = !file || transcribing || vadProcessing;
+    $('transcribe').disabled = !apiKey || !file || transcribing || vadProcessing;
     $('import').disabled = transcribing || importBusy;
-    $('upload').disabled = transcribing;
+    $('upload').disabled = transcribing || vadProcessing;
   }
   const driveMessage = (text = '', error = false) => {
     $('driveMessage').textContent = text;
@@ -163,25 +165,14 @@ function bootstrap() {
 
   function queueAudioDownload(result) {
     audioDownloadsPending++;
-    const job = audioDownloadQueue.then(async () => {
+    const job = audioDownloadQueue.then(() => {
       if (pageClosing) return;
       const status = $('audioDownloadStatus');
       status.classList.remove('error');
-      status.textContent = 'Preparing full-length FLAC download…';
-      let artifact, filename = recordingName(result.entry).replace(/\.wav$/, '.flac');
-      try {
-        artifact = (await runFlacTask('encode', result, value => {
-          status.textContent = `Preparing full-length FLAC download… ${Math.round(value * 100)}%`;
-        })).blob;
-      } catch (error) {
-        if (!result.blob) throw error;
-        // Preserve captured speech if timing, encoding or worker startup fails.
-        artifact = result.blob; filename = recordingName(result.entry);
-        status.classList.add('error');
-        status.textContent = `Full-length FLAC could not be prepared. Downloading the shortened WAV instead. ${error.message || ''}`;
-      }
-      download(artifact, filename);
-      if (filename.endsWith('.flac')) status.textContent = `FLAC download requested · ${duration(result.entry.elapsedMs)} elapsed · ${duration(result.entry.audioMs)} retained audio`;
+      // The recorder already finalized the Silero-retained PCM and clock map.
+      // Download it directly, without restoring silence or encoding a FLAC.
+      download(result.blob, recordingName(result.entry));
+      status.textContent = `VAD WAV download requested · ${duration(result.entry.elapsedMs)} elapsed · ${duration(result.entry.audioMs)} retained audio`;
     }).catch(error => {
       $('audioDownloadStatus').classList.add('error');
       $('audioDownloadStatus').textContent = `Audio download failed. ${error.message || ''}`;
@@ -209,9 +200,13 @@ function bootstrap() {
       if (blob) {
         message(`Recording finished · ${duration(entry.elapsedMs)} elapsed · ${duration(entry.audioMs)} audio`);
       } else { message('No speech detected.'); }
-      // Encode/download independently of recording commands and transcription.
-      // Fully silent recordings can still produce a compact full-length FLAC.
-      if (blob || result.timing) queueAudioDownload(result);
+      // Download independently of recording commands and transcription.
+      // A recording with no retained speech has no WAV to download.
+      if (blob) queueAudioDownload(result);
+      else {
+        $('audioDownloadStatus').classList.remove('error');
+        $('audioDownloadStatus').textContent = 'No speech detected. No audio file downloaded.';
+      }
       $('timer').textContent = clock(entry.elapsedMs);
       if (automatic) {
         // Stop has drained the VAD and produced an independent WAV. Start the
@@ -329,6 +324,22 @@ function bootstrap() {
     if (!selected) return;
     file = selected; $('fileName').textContent = file.name; updateKey();
   });
+  $('vadProcess').addEventListener('click', async () => {
+    if (!file || transcribing || vadProcessing) return;
+    const source = file, status = $('vadStatus');
+    vadProcessing = true; updateKey(); status.classList.remove('error');
+    try {
+      const result = await prepareManualAudio(source, text => { status.textContent = text; });
+      if (pageClosing) return;
+      if (result.empty) { status.textContent = 'No speech detected. No file downloaded.'; return; }
+      const output = await vadDownloadFile(result);
+      if (pageClosing) return;
+      download(output, output.name);
+      status.textContent = `VAD WAV download requested: ${output.name}`;
+    } catch (error) {
+      status.classList.add('error'); status.textContent = `VAD processing failed. ${error.message || ''}`;
+    } finally { vadProcessing = false; updateKey(); }
+  });
   function queueTranscription(source, key, speakers, automatic = null) {
     transcriptionPending++; transcribing = true; updateKey();
     const job = transcriptionQueue.then(async () => {
@@ -370,12 +381,12 @@ function bootstrap() {
     return job;
   }
   $('transcribe').addEventListener('click', () => {
-    if (!file || !apiKey || transcribing) return;
+    if (!file || !apiKey || transcribing || vadProcessing) return;
     queueTranscription(file, apiKey, $('speakers').checked).catch(() => {});
   });
 
   window.addEventListener('beforeunload', event => {
-    if (recorder.state !== 'idle' || transcribing || driveBusy || audioDownloadsPending) { event.preventDefault(); event.returnValue = ''; }
+    if (recorder.state !== 'idle' || transcribing || driveBusy || audioDownloadsPending || vadProcessing) { event.preventDefault(); event.returnValue = ''; }
   });
   window.addEventListener('pagehide', () => {
     pageClosing = true;

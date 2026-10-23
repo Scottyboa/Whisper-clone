@@ -51,6 +51,7 @@ test('Chrome runs the real Silero worker on manual WAV, stereo FLAC, MP3, app FL
       const result = await cdp('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: `(async()=>{
         const {transcribeFile}=await import('./js/soniox.mjs');
         const {prepareManualAudio}=await import('./js/manual-vad.mjs');
+        const {vadDownloadFile}=await import('./js/vad-download.mjs');
         const {wavBlob}=await import('./js/audio.mjs');
         const {encodeTimelineFlac}=await import('./js/timeline-flac.mjs');
         const realFetch=fetch.bind(window),uploads=[],jobs=[];
@@ -68,6 +69,13 @@ test('Chrome runs the real Silero worker on manual WAV, stereo FLAC, MP3, app FL
         const statuses=[];
         for(const ext of ['wav','flac','mp3'])await transcribeFile(files[ext],'fixture-only',true,s=>statuses.push(s),{manualVAD:true});
         const counts={afterSpeech:uploads.length};
+        const localDownloads=[];
+        for(const ext of ['wav','flac','mp3']){
+          const retained=await prepareManualAudio(files[ext]);
+          const output=await vadDownloadFile(retained);
+          localDownloads.push({name:output.name,type:output.type,size:output.size});
+        }
+        counts.afterLocalVAD=uploads.length;
         for(const file of [new File([wavBlob([new Int16Array(16000)])],'silent.wav'),new File([await(await realFetch('/silent.flac')).blob()],'silent.flac')]){
           try{await transcribeFile(file,'fixture-only',true,()=>{},{manualVAD:true});throw new Error('Silent file uploaded');}
           catch(e){if(e.message!=='No speech detected.')throw e;}
@@ -84,17 +92,23 @@ test('Chrome runs the real Silero worker on manual WAV, stereo FLAC, MP3, app FL
         const encoded=await encodeTimelineFlac({blob:first.file,entry,timing:first.timing});
         const appFlac=new File([encoded.blob],'app.flac');
         const second=await prepareManualAudio(appFlac);
+        const timedDownload=await vadDownloadFile(second);
+        const {prepareAudio}=await import('./js/wav-timing.mjs');
+        const downloadedTiming=(await prepareAudio(timedDownload)).timing;
         const clockText=await transcribeFile(appFlac,'fixture-only',true,()=>{},{manualVAD:true});
         // A model/network failure must fail before the provider upload begins.
         const beforeFailure=uploads.length;
         await realFetch('/fail-model');
         let failed=false;try{await transcribeFile(files.wav,'fixture-only',true,()=>{},{manualVAD:true});}catch{failed=true;}
-        return {uploads,jobs,counts,sourceBytes:files.wav.size,statuses,clockText,timing:second.timing,
+        return {uploads,jobs,counts,sourceBytes:files.wav.size,statuses,clockText,timing:second.timing,downloadedTiming,localDownloads,
           kept:first.file.size,keptAgain:second.file.size,failed,beforeFailure};
       })()` }, sessionId);
       assert.equal(result.exceptionDetails, undefined, JSON.stringify(result.exceptionDetails));
       const value = result.result.value;
       assert.equal(value.counts.afterSpeech, 3); assert.equal(value.counts.afterSilence, 3);
+      assert.equal(value.counts.afterLocalVAD,3);
+      assert.ok(value.localDownloads.every(file=>file.name==='speech-VAD.wav'&&file.type==='audio/wav'&&file.size>32044&&file.size<value.sourceBytes));
+      assert.deepEqual(value.downloadedTiming,value.timing);
       assert.ok(value.uploads.slice(0, 3).every(file => file.type === 'audio/wav' && file.name.endsWith('.wav') && file.size > 32044 && file.size < value.sourceBytes));
       assert.ok(value.jobs.every(job => job.enable_speaker_diarization === true));
       assert.ok(value.statuses.some(text => text.startsWith('Detecting speech')));

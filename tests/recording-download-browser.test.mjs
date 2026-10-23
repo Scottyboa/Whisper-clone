@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { readFile, writeFile, mkdtemp, rm, readdir } from 'node:fs/promises';
+import { readFile, mkdtemp, rm, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join, resolve, extname } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -14,12 +14,12 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 // Private CDP pipes drive only this disposable test browser and local fixture.
 
-test('Chrome module worker downloads playable FLAC, restarts before encoding and reimports compact speech', { skip: !executable, timeout: 60000 }, async () => {
+test('Chrome downloads playable VAD WAV with original clocks and restarts independently', { skip: !executable, timeout: 60000 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'whisper-flac-browser-'));
   const downloads = join(directory, 'downloads');
   const { mkdir } = await import('node:fs/promises'); await mkdir(downloads);
   const fixtures = {
-    // This test isolates the existing FLAC import/download path. The separate
+    // This test isolates the recording download and clock import path. The separate
     // manual-VAD browser test runs the real speech model and decoder worker.
     '/js/manual-vad.mjs': `import {prepareAudio} from './audio-import.mjs';export async function prepareManualAudio(file){window.testManualVAD=true;return prepareAudio(file)}export function cancelManualVAD(){}`,
     '/js/recorder.mjs': `import {Recorder as Base} from './test-real-recorder.mjs';export class Recorder extends Base {
@@ -32,8 +32,8 @@ test('Chrome module worker downloads playable FLAC, restarts before encoding and
     try {
       const pathname = new URL(request.url, 'http://localhost').pathname;
       let body;
-      if (pathname === '/saved.flac') {
-        const name = (await readdir(downloads)).find(name => name.endsWith('.flac'));
+      if (pathname === '/saved.wav') {
+        const name = (await readdir(downloads)).find(name => name.endsWith('.wav'));
         body = await readFile(join(downloads, name));
       } else if (fixtures[pathname]) body = fixtures[pathname];
       else if (pathname === '/js/test-real-recorder.mjs') body = await readFile(join(root, 'js/recorder.mjs'));
@@ -79,24 +79,24 @@ test('Chrome module worker downloads playable FLAC, restarts before encoding and
     };
     for (let i = 0; i < 100 && !await evaluate("typeof window.testCommand==='function'"); i++) await delay(50);
     assert.equal(await evaluate("typeof window.testCommand==='function'"), true);
-    // Real worker/codec and real download; provider and microphone are fixtures.
+    // Real recorder finalization and download; provider and microphone are fixtures.
     await evaluate("window.testCommand('start')");
     await evaluate("window.testNow+=10000;window.testCommand('stop-and-transcribe')");
     assert.equal(await evaluate('window.testRecorder.state'), 'recording');
-    for (let i = 0; i < 100 && !(await readdir(downloads)).some(name => name.endsWith('.flac')); i++) await delay(50);
-    assert.ok((await readdir(downloads)).some(name => name.endsWith('.flac')),
+    for (let i = 0; i < 100 && !(await readdir(downloads)).some(name => name.endsWith('.wav')); i++) await delay(50);
+    assert.ok((await readdir(downloads)).some(name => name.endsWith('.wav')),
       await evaluate("document.getElementById('audioDownloadStatus').textContent"));
     for (let i = 0; i < 100 && !await evaluate('window.testUploads.length'); i++) await delay(50);
     assert.equal(await evaluate('window.testUploads.length'), 1);
     assert.deepEqual(await evaluate('window.testUploads[0].folders'), ['Transcripts','temp']);
     assert.equal(await evaluate('window.testPayloads[0].size'), 32044);
-    const playback = await evaluate(`(async()=>{const blob=await(await fetch('/saved.flac')).arrayBuffer();
+    const playback = await evaluate(`(async()=>{const blob=await(await fetch('/saved.wav')).arrayBuffer();
       const context=new AudioContext({sampleRate:16000});try{const decoded=await context.decodeAudioData(blob);
-      const pcm=decoded.getChannelData(0);return {duration:decoded.duration,channels:decoded.numberOfChannels,leading:pcm[0],speech:pcm[128000],trailing:pcm[159000]};}finally{await context.close();}})()`);
-    assert.equal(playback.duration, 10); assert.equal(playback.channels, 1);
-    assert.equal(playback.leading, 0); assert.ok(playback.speech > .2); assert.equal(playback.trailing, 0);
-    await evaluate(`(async()=>{const blob=await(await fetch('/saved.flac')).blob();const transfer=new DataTransfer();
-      transfer.items.add(new File([blob],'saved.flac',{type:'audio/flac'}));const input=document.getElementById('file');
+      const pcm=decoded.getChannelData(0);return {duration:decoded.duration,channels:decoded.numberOfChannels,leading:pcm[0],speech:pcm[8000],trailing:pcm[15900]};}finally{await context.close();}})()`);
+    assert.equal(playback.duration, 1); assert.equal(playback.channels, 1);
+    assert.ok(playback.leading > .2); assert.ok(playback.speech > .2); assert.ok(playback.trailing > .2);
+    await evaluate(`(async()=>{const blob=await(await fetch('/saved.wav')).blob();const transfer=new DataTransfer();
+      transfer.items.add(new File([blob],'saved.wav',{type:'audio/wav'}));const input=document.getElementById('file');
       input.files=transfer.files;input.dispatchEvent(new Event('change'));document.getElementById('speakers').checked=true;
       document.getElementById('transcribe').click();})()`);
     for (let i = 0; i < 100 && await evaluate('window.testPayloads.length') < 2; i++) await delay(50);
@@ -117,11 +117,17 @@ test('Chrome module worker downloads playable FLAC, restarts before encoding and
       await evaluate("document.getElementById('driveImportClose').click()");
       assert.equal(await evaluate('window.testRecorder.state'),'recording');
     }
+    // VAD-only button reuses preparation but makes no provider or Drive calls.
+    const previous = await evaluate('({providers:window.testPayloads.length,uploads:window.testUploads.length,text:document.getElementById("transcript").value})');
+    await evaluate("document.getElementById('vadProcess').click()");
+    for(let i=0;i<100&&!(await readdir(downloads)).some(name=>name.endsWith('-VAD.wav'));i++)await delay(50);
+    assert.ok((await readdir(downloads)).some(name=>name.endsWith('-VAD.wav')));
+    assert.deepEqual(await evaluate('({providers:window.testPayloads.length,uploads:window.testUploads.length,text:document.getElementById("transcript").value})'),previous);
     await evaluate("window.testCommand('abort')");
     assert.equal(await evaluate('window.testRecorder.state'), 'idle');
   } finally {
     await cdp('Browser.close').catch(() => {}); browser.kill();
     await new Promise(resolve => server.close(resolve)); await delay(200);
-    await rm(directory, { recursive: true, force: true });
+    await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });

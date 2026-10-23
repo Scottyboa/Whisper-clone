@@ -6,12 +6,12 @@
   <meta name="referrer" content="no-referrer">
   <title>Whisper-clone</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="style.css?v=20261018-folders1">
+  <link rel="stylesheet" href="style.css?v=20261023-wav1">
   <script defer src="vendor/ort/ort.min.js"></script>
   <script defer src="vendor/vad/bundle.min.js"></script>
   <script defer src="vendor/msal/msal-browser.min.js"></script>
   <script defer src="vendor/jszip/jszip.min.js"></script>
-  <script type="module" src="js/app.mjs?v=20261023-upload1"></script>
+  <script type="module" src="js/app.mjs?v=20261023-wav1"></script>
 </head>
 <body>
   <div class="privacy-controls">
@@ -114,6 +114,7 @@
           <input id="file" type="file" accept="audio/*,.wav,.mp3,.m4a,.webm,.ogg,.flac,.aac,.mp4" hidden>
           <span id="fileName"></span>
           <div class="transcript-actions">
+            <button id="vadProcess" type="button" disabled>VAD processing</button>
             <button id="transcribe" class="primary" type="button" disabled>Transcribe</button>
             <button id="exportDrive" type="button" disabled>EX.Drive</button>
             <button id="importDrive" type="button">Imp. Drive</button>
@@ -123,6 +124,7 @@
         <textarea id="transcript" aria-label="Transcript" spellcheck="false"></textarea>
         <div id="message" role="status" aria-live="polite"></div>
         <div id="audioDownloadStatus" role="status" aria-live="polite"></div>
+        <div id="vadStatus" role="status" aria-live="polite"></div>
         <div id="driveMessage" role="status" aria-live="polite"></div>
       </section>
     </main>
@@ -144,18 +146,18 @@
         <table class="guide-table"><thead><tr><th scope="col">Button</th><th scope="col">What happens</th></tr></thead><tbody>
           <tr><th scope="row">Start</th><td>Starts a new recording. Pressing Start while already recording does not create another recording.</td></tr>
           <tr><th scope="row">Pause / Resume</th><td>Pauses audio capture, then continues the same recording. The button changes to Resume while paused.</td></tr>
-          <tr><th scope="row">Stop</th><td>Finishes the recording and prepares a local full-length FLAC download. It does not automatically transcribe or restart.</td></tr>
+          <tr><th scope="row">Stop</th><td>Finishes the recording and downloads a Silero VAD-processed WAV with silence removed. It does not automatically transcribe or restart.</td></tr>
           <tr><th scope="row">Abort</th><td>Asks for confirmation, then discards the current recording without saving or transcribing it. Previous background jobs continue.</td></tr>
           <tr><th scope="row">Keep awake</th><td>Requests that the screen stay awake while this page is visible, if the browser supports it. Keep the computer awake and the tab open.</td></tr>
         </tbody></table>
-        <p><strong>Timer and VAD:</strong> the timer shows elapsed time, including pauses. Voice activity detection shortens the audio sent for transcription. The downloaded FLAC restores removed intervals as efficiently stored silence, so playback follows the full recording timeline, including pauses. Sound discarded by VAD is not restored.</p>
+        <p><strong>Timer and VAD:</strong> the timer shows elapsed time, including pauses. Silero voice activity detection keeps speech, with its padding and short pauses, for both transcription and the downloaded WAV. Removed silence and recording pauses are not restored. If no speech is detected, no audio file is downloaded.</p>
         <p><strong>History:</strong> select a recording to see its date, start, stop, elapsed time and retained audio duration. History stores those details, not a playable audio archive.</p>
       </section>
       <section aria-labelledby="guideAutomatic">
         <h3 id="guideAutomatic">Stop and transcribe</h3>
         <p>Send this command by email or use it in Devices. It:</p>
         <ol>
-          <li>Finishes the current recording and prepares its full-length FLAC download in the background.</li>
+          <li>Finishes the current recording and requests its VAD-processed WAV download in the background.</li>
           <li>Starts a fresh recording once the previous audio has been finalized.</li>
           <li>Transcribes the previous audio with speaker labels in the background, then uploads the finished TXT to both Original (Transcripts) and temp in OneDrive.</li>
         </ol>
@@ -190,8 +192,9 @@
       <section aria-labelledby="guideTranscription">
         <h3 id="guideTranscription">Transcribe a file</h3>
         <p>Use <strong>Upload File</strong> to select audio, choose whether you want <strong>Speaker labels</strong> (on by default), then press <strong>Transcribe</strong>. The app runs voice activity detection locally first and sends only retained speech to Soniox. If no speech is detected, nothing is uploaded. Results appear in the transcript field. You can edit that text and save it with <strong>EX.Drive</strong>.</p>
-        <p>With speaker labels enabled, recordings made by this app can show original clock times beside speaker turns, even after VAD removed silence. In a full-length FLAC, subtract its recording start time to find the matching playback position in VLC or another player.</p>
-        <p>Every manual transcription runs VAD, including WAV and FLAC files from other recorders. App-generated FLACs first recover the audio kept by the original VAD, then run the manual VAD pass. Existing clock metadata is preserved through further trimming; files without it do not gain original clock times. Preparation can take several minutes for long files. A decoding or VAD failure stops the upload so the full file is never submitted as a fallback. If full-length recording export fails, the app preserves the shortened WAV and shows a download warning.</p>
+        <p><strong>VAD processing:</strong> after Upload File, use this button to run Silero VAD on a WAV, FLAC or MP3 and download a speech-only <code>-VAD.wav</code>, without a Soniox key, transcription or Drive upload. The original file stays selected and is not overwritten. No speech means no download. The same model and thresholds are used as for manual transcription.</p>
+        <p>With speaker labels enabled, recordings made by this app can show original clock times beside speaker turns, even after VAD removed silence. Downloaded WAVs preserve available clock metadata, including after manual VAD processing. Playback is shortened, so its positions no longer match elapsed time from the original recording start.</p>
+        <p>Every manual transcription runs VAD, including WAV and FLAC files from other recorders. App-generated FLACs first recover the audio kept by the original VAD, then run the manual VAD pass. Existing clock metadata is preserved through further trimming; files without it do not gain original clock times. Preparation can take several minutes for long files. A decoding or VAD failure stops the upload so the full file is never submitted as a fallback. Older app-generated FLACs remain supported for import and VAD processing.</p>
         <p><strong>Clear</strong> beside Import Key removes the Soniox key from this tab’s session after confirmation. It does not delete Drive files.</p>
       </section>
       <section aria-labelledby="guideDrive">

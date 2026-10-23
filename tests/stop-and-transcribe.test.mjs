@@ -8,13 +8,13 @@ import { transcribeFile as realTranscribe } from '../js/soniox.mjs';
 import * as audio from '../js/audio.mjs';
 import { createDriveImportPrompt } from '../js/drive-import-prompt.mjs';
 import { AppGuide } from '../js/app-guide.mjs';
-import { runFlacTask as realFlacTask } from '../js/flac-tasks.mjs';
+import { vadDownloadFile } from '../js/vad-download.mjs';
 
 const account = { homeAccountId: 'recording-account' };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => { resolve=a; reject=b; }); return {promise,resolve,reject}; };
 const app = readFileSync(new URL('../js/app.mjs', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '');
-function harness({ key = 'soniox-key', speech = true, timed = false, transcribe, upload, onCapture, onDrain, downloadError = false, abortConfirmed = true, readDrive, flacTask } = {}) {
+function harness({ key = 'soniox-key', speech = true, timed = false, transcribe, upload, onCapture, onDrain, downloadError = false, abortConfirmed = true, readDrive, prepareVAD } = {}) {
   const elements = new Map(), downloads = [], transcriptions = [], uploads = [], commands = [], captures = [], importCalls = [];
   const makeElement = () => ({
     value: '', checked: false, disabled: false, textContent: '', children: [], listeners: new Map(),
@@ -52,7 +52,8 @@ function harness({ key = 'soniox-key', speech = true, timed = false, transcribe,
   }
   const context = vm.createContext({
     ...audio, download: (blob,name) => { downloads.push({blob,name}); if(downloadError)throw new Error('download blocked'); }, Recorder, MailControl: Mail, TranscriptDrive: Drive,
-    runFlacTask: flacTask || (async (action,input) => { if(!timed)throw new Error('Missing fixture timing');return realFlacTask(action,input); }), cancelFlacTasks(){}, cancelManualVAD(){},
+    prepareManualAudio: prepareVAD || (async source => ({file:new File([audio.wavBlob([new Int16Array(16000)])],source.name.replace(/\.[^.]*$/,'')+'.wav',{type:'audio/wav'}),timing:null})),
+    vadDownloadFile, cancelFlacTasks(){}, cancelManualVAD(){},
     PrivacyView: class {}, AppGuide, File, createDriveImportPrompt, DeviceControl:Devices, DevicesPanel:class{dispose(){}},createAbortPrompt:()=>async()=>abortConfirmed,
     transcribeFile: async (...args) => { transcriptions.push(args); return transcribe ? transcribe(...args) : 'Speaker 1: Hello\n\nSpeaker 2: Hi'; },
     sessionStorage: {getItem: name => name.endsWith('soniox-key') ? key : null, setItem() {}, removeItem() {}},
@@ -81,16 +82,16 @@ test('the guide opens during recording and transcription without changing either
   assert.equal(h.recorder.state,'recording');assert.equal(h.mail.active,true);
 });
 
-test('FLAC preparation never gates automatic restart, transcription, upload or Abort of the fresh recording',async()=>{
-  const encode=deferred(),h=harness({flacTask:()=>encode.promise});
+test('direct WAV download and Abort stay independent of pending automatic transcription',async()=>{
+  const gate=deferred(),h=harness({transcribe:()=>gate.promise});
   await h.mail.onCommand('start');h.advance(10000);await h.mail.onCommand('stop-and-transcribe');await tick();
   assert.equal(h.recorder.state,'recording');assert.equal(h.captures.length,2);
-  assert.equal(h.transcriptions.length,1);assert.equal(h.uploads.length,1);assert.equal(h.downloads.length,0);
-  assert.match(h.el('audioDownloadStatus').textContent,/Preparing/);
+  assert.equal(h.transcriptions.length,1);assert.equal(h.uploads.length,0);assert.equal(h.downloads.length,1);
+  assert.match(h.downloads[0].name,/\.wav$/);assert.equal(h.downloads[0].blob.type,'audio/wav');
+  assert.equal(h.downloads[0].blob.size,32044);assert.match(h.el('audioDownloadStatus').textContent,/VAD WAV/);
   await h.devices.execute('abort');assert.equal(h.recorder.state,'idle');
-  encode.resolve({blob:new Blob(['fLaC fixture'],{type:'audio/flac'})});await tick();
-  assert.equal(h.downloads.length,1);assert.match(h.downloads[0].name,/\.flac$/);
-  assert.equal(h.recorder.state,'idle');assert.equal(h.uploads.length,1);
+  gate.resolve('Completed previous recording');await tick();
+  assert.equal(h.downloads.length,1);assert.equal(h.recorder.state,'idle');assert.equal(h.uploads.length,1);
 });
 
 test('Devices receives the input sound clock and automatic recording restart resets it',async()=>{
@@ -107,14 +108,11 @@ test('Devices receives the input sound clock and automatic recording restart res
   assert.equal(h.devices.getStatus().lastSoundAt,h.recorder.now());
 });
 
-test('a fully silent timed recording downloads a full-length FLAC without calling Soniox',async()=>{
+test('a fully silent timed recording downloads nothing, skips Soniox and still restarts',async()=>{
   const h=harness({speech:false,timed:true});await h.mail.onCommand('start');h.advance(30000);
-  await h.mail.onCommand('stop-and-transcribe');assert.equal(h.recorder.state,'recording');
-  for(let i=0;i<200&&!h.downloads.length;i++)await new Promise(resolve=>setTimeout(resolve,5));
-  assert.equal(h.downloads.length,1);assert.match(h.downloads[0].name,/\.flac$/);
-  assert.equal(h.transcriptions.length,0);assert.equal(h.uploads.length,0);
-  const {prepareAudio}=await import('../js/audio-import.mjs');
-  assert.equal((await prepareAudio(new File([h.downloads[0].blob],'silent.flac'))).empty,true);
+  await h.mail.onCommand('stop-and-transcribe');await tick();assert.equal(h.recorder.state,'recording');
+  assert.equal(h.downloads.length,0);assert.equal(h.transcriptions.length,0);assert.equal(h.uploads.length,0);
+  assert.match(h.el('audioDownloadStatus').textContent,/No speech detected/);
 });
 
 test('new exact command accepts whitespace/case and preserves self-sender, blank-subject and age checks', () => {
@@ -256,7 +254,7 @@ test('real mailbox polling processes later commands during transcription and ded
   gate.resolve('done');await tick();assert.equal(h.uploads.length,1);
 });
 
-test('automatic workflow uploads real clock-stamped output and preserves the same timing map in its full-length FLAC download',async()=>{
+test('automatic workflow uploads real clock-stamped output and preserves the same timing map in its VAD WAV download',async()=>{
   const original=globalThis.fetch;
   globalThis.fetch=async(url,opts={})=>new Response(JSON.stringify(opts.method==='DELETE'?{}:
     url.endsWith('/files')?{id:'file'}:opts.method==='POST'?{id:'job'}:
@@ -268,9 +266,9 @@ test('automatic workflow uploads real clock-stamped output and preserves the sam
     assert.match(h.uploads[0].text,/^\(10:00:10\) Speaker 1: Clock-stamped text$/);
     assert.equal(h.el('transcript').value,h.uploads[0].text);
     for(let i=0;i<200&&!h.downloads.length;i++)await new Promise(resolve=>setTimeout(resolve,5));
-    assert.match(h.downloads[0].name,/\.flac$/);
+    assert.match(h.downloads[0].name,/\.wav$/);
     const {prepareAudio}=await import('../js/audio-import.mjs');
-    const prepared=await prepareAudio(new File([h.downloads[0].blob],'saved.flac'));
+    const prepared=await prepareAudio(new File([h.downloads[0].blob],'saved.wav'));
     assert.ok(prepared.timing);assert.equal(prepared.file.size,32044);
   }finally{globalThis.fetch=original;}
 });
@@ -477,4 +475,43 @@ test('import selected during an automatic upload queues safely instead of silent
   assert.equal(h.importCalls.length,0);gate.resolve('uploaded.txt');await work;await tick();
   assert.equal(h.importCalls.length,1);assert.equal(h.el('transcript').value,'COMPLETE.txt\n\nrecording.txt\n\nSpeaker 1: Imported text');
   assert.equal(h.recorder.state,'recording');
+});
+
+
+test('VAD-only downloads WAV, FLAC and MP3 without a key or provider and keeps the source and transcript',async()=>{
+  for(const extension of ['wav','flac','mp3']){
+    const h=harness({key:''});
+    assert.equal(h.el('vadProcess').disabled,true);
+    const source=new File(['source'],'test.'+extension);
+    h.el('file').files=[source];h.el('file').listeners.get('change')();h.el('transcript').value='Keep this transcript';
+    assert.equal(h.el('vadProcess').disabled,false);assert.equal(h.el('transcribe').disabled,true);
+    await h.el('vadProcess').listeners.get('click')();
+    assert.equal(h.downloads.length,1);assert.equal(h.downloads[0].name,'test-VAD.wav');
+    assert.equal(h.downloads[0].blob.type,'audio/wav');assert.equal(h.downloads[0].blob.size,32044);
+    assert.equal(h.transcriptions.length,0);assert.equal(h.uploads.length,0);
+    assert.equal(h.el('transcript').value,'Keep this transcript');assert.equal(h.el('fileName').textContent,source.name);
+    assert.equal(h.el('vadProcess').disabled,false);
+  }
+});
+
+test('VAD-only guards duplicate/manual jobs but allows recording commands, and recovers after a failure',async()=>{
+  const gate=deferred();let calls=0;
+  const h=harness({prepareVAD:()=>{calls++;return gate.promise;}});
+  h.el('file').files=[new File(['source'],'test.wav')];h.el('file').listeners.get('change')();
+  const first=h.el('vadProcess').listeners.get('click')();
+  assert.equal(h.el('vadProcess').disabled,true);assert.equal(h.el('transcribe').disabled,true);assert.equal(h.el('upload').disabled,true);
+  await h.el('vadProcess').listeners.get('click')();h.el('transcribe').listeners.get('click')();
+  assert.equal(calls,1);assert.equal(h.transcriptions.length,0);
+  await h.devices.execute('start');assert.equal(h.recorder.state,'recording');await h.devices.execute('abort');
+  gate.reject(new Error('model unavailable'));await first;
+  assert.equal(h.downloads.length,0);assert.equal(h.uploads.length,0);assert.match(h.el('vadStatus').textContent,/model unavailable/);
+  assert.equal(h.el('vadProcess').disabled,false);assert.equal(h.el('transcribe').disabled,false);assert.equal(h.el('upload').disabled,false);
+});
+
+test('VAD-only silence downloads nothing and leaves the controls available',async()=>{
+  const h=harness({prepareVAD:async()=>({empty:true})});
+  h.el('file').files=[new File(['source'],'silent.flac')];h.el('file').listeners.get('change')();
+  await h.el('vadProcess').listeners.get('click')();
+  assert.equal(h.downloads.length,0);assert.equal(h.transcriptions.length,0);assert.equal(h.uploads.length,0);
+  assert.equal(h.el('vadProcess').disabled,false);assert.match(h.el('vadStatus').textContent,/No speech detected/);
 });

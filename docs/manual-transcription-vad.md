@@ -1,4 +1,4 @@
-# Manual transcription
+# Manual transcription and VAD-only downloads
 
 Upload File → Transcribe always runs the pinned Silero speech detector locally
 before any Soniox request. It uses the same model and thresholds as live
@@ -28,8 +28,18 @@ No speech means no Soniox request. Decoding/model/worker failures stop the job;
 there is no fallback that uploads the full unprocessed file. Manual transcription
 does not automatically save a transcript to Drive.
 
+The VAD processing button uses the same preparation on WAV, FLAC and MP3 without
+a Soniox key. It downloads a mono 16 kHz, 16-bit `-VAD.wav`, with available clock
+metadata reattached for later import. It does not call Soniox, change the
+transcript or upload to Drive, and leaves the original selected. Duplicate VAD
+clicks and manual transcription are blocked during processing; live recording
+and remote commands remain independent. No speech means no download. Closing
+the page cancels the worker and prompts while processing is unfinished.
+
 Automatic Stop and transcribe continues to submit the audio already retained
-by the live recorder, without the additional manual VAD pass.
+by the live recorder, without the additional manual VAD pass. Its download,
+and ordinary Stop, now use that VAD WAV directly with clock metadata instead
+of encoding full-timeline FLAC. Old FLAC imports remain supported.
 
 The exact email body `abort recording` invokes the existing Abort action without
 an extra local prompt: it discards the active recording, saves no audio, submits

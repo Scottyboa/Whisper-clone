@@ -1,6 +1,6 @@
-# Full-timeline recording downloads
+# Legacy full-timeline FLAC files
 
-Stop and Stop and Transcribe download a standard mono, 16 kHz, 16-bit FLAC.
+Before the VAD WAV download patch, Stop and Stop and Transcribe downloaded a standard mono, 16 kHz, 16-bit FLAC. New recordings now download the retained speech directly as WAV; see [VAD WAV downloads](vad-wav-downloads.md). The details below describe older FLAC files and the retained codec/import support.
 Retained speech is unchanged from the existing VAD-processed WAV. Removed
 intervals, leading/trailing gaps and recording pauses play as digital silence.
 The original background sounds discarded by VAD cannot be recovered.
@@ -27,12 +27,12 @@ This is ordinary FLAC metadata that other players can ignore.
 On reimport the app validates the map, stream properties, frame numbering, CRCs,
 sample counts and every omitted interval. Only verified zero-valued samples may
 be removed. The retained PCM becomes a compact WAV for Soniox, with the original
-clock map used for speaker labels. No neural VAD pass is repeated. An entirely
+clock map used for speaker labels. Manual transcription and the VAD processing button then run a fresh Silero pass before using the recovered speech. An entirely
 silent app recording produces no provider request.
 
 Older timed WAV files retain their existing support. Ordinary FLAC, re-encoded
 FLAC, unsupported metadata versions, invalid maps and damaged frames follow the
-existing manual-upload path, without app-side silence trimming. Do not assume
+manual-upload path, with a fresh Silero VAD pass before transcription or the VAD-only download. Do not assume
 that converting an app FLAC with another audio editor preserves fast reimport or
 original clock labels. Worker failures abort preparation rather than silently
 uploading a full-length file.
