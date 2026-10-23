@@ -3,9 +3,10 @@ import { createDriveImportPrompt } from './drive-import-prompt.mjs?v=20261018-fo
 import { DeviceControl } from './device-control.mjs?v=20261021-sound1';
 import { DevicesPanel, createAbortPrompt } from './devices-panel.mjs?v=20261021-sound1';
 import { clock, duration, dateStamp, timeStamp, recordingName, recordingTranscriptName, download } from './audio.mjs?v=20261015-clock1';
-import { MailControl } from './graph.mjs?v=20261015-devices1';
+import { MailControl } from './graph.mjs?v=20261023-upload1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';
-import { transcribeFile } from './soniox.mjs?v=20261017-flac2';
+import { transcribeFile } from './soniox.mjs?v=20261023-upload1';
+import { cancelManualVAD } from './manual-vad.mjs?v=20261023-upload1';
 import { runFlacTask, cancelFlacTasks } from './flac-tasks.mjs?v=20261017-flac2';
 import { PrivacyView } from './privacy-view.mjs?v=20261014-demo1';
 import { TranscriptDrive } from './transcript-drive.mjs?v=20261018-folders1';
@@ -26,6 +27,7 @@ function bootstrap() {
   let driveQueue = Promise.resolve(), transcriptionQueue = Promise.resolve(), audioDownloadQueue = Promise.resolve();
   let audioDownloadsPending = 0, pageClosing = false;
   let commandGeneration = 0;
+  $('speakers').checked = true;
   const message = (text = '', error = false) => { $('message').textContent = text; $('message').classList.toggle('error', error); };
   try {
     apiKey = sessionStorage.getItem(KEY) || '';
@@ -318,7 +320,7 @@ function bootstrap() {
   $('clear').addEventListener('click', () => {
     if (!confirm('Do you want to remove the API key?')) return;
     try { sessionStorage.removeItem(KEY); } catch { message('Could not clear the key.', true); return; }
-    apiKey = ''; $('speakers').checked = false; updateKey();
+    apiKey = ''; updateKey();
   });
 
   $('upload').addEventListener('click', () => $('file').click());
@@ -338,7 +340,7 @@ function bootstrap() {
           if (transcript !== undefined) { $('transcript').value = transcript; updateDrive(); }
           if (error) cleanupFailed = true;
           message(status, error);
-        });
+        }, { manualVAD: !automatic });
         $('transcript').value = text; updateDrive();
         if (automatic) {
           await queueDrive(async () => {
@@ -377,7 +379,7 @@ function bootstrap() {
   });
   window.addEventListener('pagehide', () => {
     pageClosing = true;
-    devices.disconnect(); panel.dispose(); mail.unlink(); recorder.dispose(); cancelFlacTasks(); wakeGeneration++;
+    devices.disconnect(); panel.dispose(); mail.unlink(); recorder.dispose(); cancelFlacTasks(); cancelManualVAD(); wakeGeneration++;
     wakeLock?.release().catch(() => {}); file = null;
   });
   window.addEventListener('pageshow', event => { if (event.persisted) location.reload(); });

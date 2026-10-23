@@ -19,6 +19,7 @@ export function parseCommand(message, ownAddresses, linkedAt, now = Date.now()) 
   }
   const command = normalize(body).replace(/\s+/g, ' ');
   if (command === 'stop and transcribe') return 'stop-and-transcribe';
+  if (command === 'abort recording') return 'abort';
   const match = /^(start|pause|resume|stop)(?: recording)?$/.exec(command);
   return match?.[1] || null;
 }

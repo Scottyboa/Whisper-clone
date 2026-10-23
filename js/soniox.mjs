@@ -1,5 +1,6 @@
 import { clockLabel } from './wav-timing.mjs?v=20261015-clock1';
 import { prepareAudio } from './audio-import.mjs?v=20261017-flac2';
+import { prepareManualAudio } from './manual-vad.mjs?v=20261023-upload1';
 import { CONFIG } from './config.mjs';
 
 export function renderTranscript(result, speakers, timing = null) {
@@ -24,7 +25,7 @@ export function renderTranscript(result, speakers, timing = null) {
 }
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-export async function transcribeFile(file, apiKey, speakers, onStatus = () => {}) {
+export async function transcribeFile(file, apiKey, speakers, onStatus = () => {}, { manualVAD = false } = {}) {
   let fileId, transcriptionId;
   const request = async (path, options = {}) => {
     const response = await fetch(`${CONFIG.sonioxBase}/${path}`, {
@@ -48,8 +49,9 @@ export async function transcribeFile(file, apiKey, speakers, onStatus = () => {}
   let cleanupOK = true;
   try {
     onStatus('Preparing audio…');
-    const prepared = await prepareAudio(file, value => onStatus(`Preparing audio… ${Math.round(value * 100)}%`));
-    if (prepared.empty) throw new Error('This recording contains no retained speech.');
+    const prepared = manualVAD ? await prepareManualAudio(file, onStatus) :
+      await prepareAudio(file, value => onStatus(`Preparing audio… ${Math.round(value * 100)}%`));
+    if (prepared.empty) throw new Error(manualVAD ? 'No speech detected.' : 'This recording contains no retained speech.');
     onStatus('Uploading…');
     const form = new FormData(); form.append('file', prepared.file, prepared.file.name || file.name);
     const upload = await (await request('files', { method: 'POST', body: form })).json();

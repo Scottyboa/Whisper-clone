@@ -6,43 +6,22 @@ import { readFile, writeFile, mkdtemp, rm, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join, resolve, extname } from 'node:path';
 import { tmpdir } from 'node:os';
+import { protocol } from './helpers/browser.mjs';
 
 const executable = process.env.WHISPER_TEST_CHROME;
 const root = fileURLToPath(new URL('../', import.meta.url));
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 // Private CDP pipes drive only this disposable test browser and local fixture.
-function protocol(process) {
-  let id = 0, buffered = Buffer.alloc(0), closed = false; const pending = new Map();
-  const stop = () => {
-    closed = true;
-    for (const task of pending.values()) { clearTimeout(task.timer); task.reject(new Error('Test browser exited.')); }
-    pending.clear();
-  };
-  process.once('exit', stop); process.once('error', stop);
-  process.stdio[3].on('error', stop); process.stdio[4].on('error', stop);
-  process.stdio[4].on('data', bytes => {
-    buffered = Buffer.concat([buffered, bytes]); let end;
-    while ((end = buffered.indexOf(0)) >= 0) {
-      const packet = JSON.parse(buffered.subarray(0, end).toString()); buffered = buffered.subarray(end + 1);
-      const task = pending.get(packet.id);
-      if (task) { pending.delete(packet.id); clearTimeout(task.timer); packet.error ? task.reject(new Error(packet.error.message)) : task.resolve(packet.result); }
-    }
-  });
-  return (method, params = {}, sessionId) => new Promise((resolve, reject) => {
-    if (closed) { reject(new Error('Test browser is closed.')); return; }
-    const number = ++id;
-    const timer = setTimeout(() => { pending.delete(number); reject(new Error(`CDP timeout: ${method}`)); }, 30000);
-    pending.set(number, { resolve, reject, timer });
-    process.stdio[3].write(JSON.stringify({ id: number, method, params, ...(sessionId ? { sessionId } : {}) }) + '\0');
-  });
-}
 
 test('Chrome module worker downloads playable FLAC, restarts before encoding and reimports compact speech', { skip: !executable, timeout: 60000 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'whisper-flac-browser-'));
   const downloads = join(directory, 'downloads');
   const { mkdir } = await import('node:fs/promises'); await mkdir(downloads);
   const fixtures = {
+    // This test isolates the existing FLAC import/download path. The separate
+    // manual-VAD browser test runs the real speech model and decoder worker.
+    '/js/manual-vad.mjs': `import {prepareAudio} from './audio-import.mjs';export async function prepareManualAudio(file){window.testManualVAD=true;return prepareAudio(file)}export function cancelManualVAD(){}`,
     '/js/recorder.mjs': `import {Recorder as Base} from './test-real-recorder.mjs';export class Recorder extends Base {
       constructor(options){super({...options,now:()=>window.testNow,createVAD:async callbacks=>({async drainAndPause(){callbacks.onSpeechEnd(new Float32Array(16000).fill(.25),[[0,16000,window.testNow-2000]])},destroy(){}})});window.testRecorder=this;}}`,
     '/js/graph.mjs': `export class MailControl {constructor(options){Object.assign(this,options);window.testCommand=options.onCommand;this.active=false}async client(){return {}}unlink(){}}`,
@@ -123,6 +102,7 @@ test('Chrome module worker downloads playable FLAC, restarts before encoding and
     for (let i = 0; i < 100 && await evaluate('window.testPayloads.length') < 2; i++) await delay(50);
     assert.equal(await evaluate('window.testPayloads[1].size'), 32044);
     assert.equal(await evaluate('window.testPayloads[1].name'), 'saved.wav');
+    assert.equal(await evaluate('window.testManualVAD'),true);
     for (let i = 0; i < 100 && !await evaluate("document.getElementById('transcript').value.includes('日本語')"); i++) await delay(50);
     assert.match(await evaluate("document.getElementById('transcript').value"), /\(14:00:08\) Speaker 1: 日本語 Test/);
     for (const [button,label] of [['exportDrive','Export'],['importDrive','Import'],['clearDrive','Clear']]) {

@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@wasm-audio-decoders/flac": "^0.2.11",
+    "esbuild": "^0.28.2"
+  }
+}

@@ -52,7 +52,7 @@ function harness({ key = 'soniox-key', speech = true, timed = false, transcribe,
   }
   const context = vm.createContext({
     ...audio, download: (blob,name) => { downloads.push({blob,name}); if(downloadError)throw new Error('download blocked'); }, Recorder, MailControl: Mail, TranscriptDrive: Drive,
-    runFlacTask: flacTask || (async (action,input) => { if(!timed)throw new Error('Missing fixture timing');return realFlacTask(action,input); }), cancelFlacTasks(){},
+    runFlacTask: flacTask || (async (action,input) => { if(!timed)throw new Error('Missing fixture timing');return realFlacTask(action,input); }), cancelFlacTasks(){}, cancelManualVAD(){},
     PrivacyView: class {}, AppGuide, File, createDriveImportPrompt, DeviceControl:Devices, DevicesPanel:class{dispose(){}},createAbortPrompt:()=>async()=>abortConfirmed,
     transcribeFile: async (...args) => { transcriptions.push(args); return transcribe ? transcribe(...args) : 'Speaker 1: Hello\n\nSpeaker 2: Hi'; },
     sessionStorage: {getItem: name => name.endsWith('soniox-key') ? key : null, setItem() {}, removeItem() {}},
@@ -144,7 +144,8 @@ test('remote Stop drains the actual recorder, downloads its WAV and uploads spea
   await h.mail.onCommand('stop-and-transcribe'); await tick();
   assert.equal(h.recorder.state,'recording'); assert.equal(h.downloads.length,1);
   const [source,key,speakers]=h.transcriptions[0];
-  assert.equal(key,'soniox-key'); assert.equal(speakers,true); assert.equal(h.el('speakers').checked,false);
+  assert.equal(key,'soniox-key'); assert.equal(speakers,true); assert.equal(h.el('speakers').checked,true);
+  assert.equal(h.transcriptions[0][4].manualVAD,false);
   assert.equal(source.type,'audio/wav'); assert.equal(source.size,32044);
   assert.deepEqual(new Uint8Array(await source.arrayBuffer()),new Uint8Array(await h.downloads[0].blob.arrayBuffer()));
   assert.equal(h.uploads[0].text,'Speaker 1: Hello\n\nSpeaker 2: Hi');
@@ -173,8 +174,32 @@ test('manual transcription shares the queue; plain Stop never transcribes or upl
   h.el('file').files=[selected]; h.el('file').listeners.get('change')();
   h.el('speakers').checked=false; h.el('transcribe').listeners.get('click')(); await tick();
   assert.equal(h.transcriptions[0][0],selected); assert.equal(h.transcriptions[0][2],false); assert.equal(h.uploads.length,0);
+  assert.equal(h.transcriptions[0][4].manualVAD,true);
   await h.mail.onCommand('start'); await h.mail.onCommand('stop'); await tick();
   assert.equal(h.downloads.length,1); assert.equal(h.transcriptions.length,1); assert.equal(h.uploads.length,0); assert.equal(h.recorder.state,'idle');
+});
+
+test('speaker labels start enabled and can be switched off for manual transcription',async()=>{
+  const h=harness();assert.equal(h.el('speakers').checked,true);
+  const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');assert.match(html,/<input id="speakers"[^>]*checked/);
+  h.el('file').files=[new File(['audio'],'manual.wav')];h.el('file').listeners.get('change')();
+  h.el('transcribe').listeners.get('click')();await tick();assert.equal(h.transcriptions[0][2],true);
+  h.el('speakers').checked=false;h.el('transcribe').listeners.get('click')();await tick();assert.equal(h.transcriptions[1][2],false);
+});
+
+test('exact abort recording email accepts case and whitespace, discards audio and keeps the link',async()=>{
+  for(const body of ['abort recording','Abort recording',' ABORT\n RECORDING '])
+    assert.equal(parse(commandMail({body:{content:body}})),'abort');
+  for(const changes of [{body:{content:'abort'}},{body:{content:'please abort recording'}},{subject:'abort recording'},
+    {from:{emailAddress:{address:'other@example.com'}}},{sender:{emailAddress:{address:'other@example.com'}}},
+    {toRecipients:[]},{receivedDateTime:'2026-10-15T07:50:00Z'}])assert.equal(parse(commandMail(changes)),null);
+  for(const paused of [false,true]){
+    const h=harness();await h.mail.onCommand('start');if(paused)await h.mail.onCommand('pause');
+    await h.mail.onCommand(parse(commandMail({body:{content:'Abort recording'}})));await tick();
+    assert.equal(h.recorder.state,'idle');assert.equal(h.recorder.samples,0);assert.equal(h.downloads.length,0);
+    assert.equal(h.transcriptions.length,0);assert.equal(h.uploads.length,0);assert.equal(h.mail.active,true);
+    assert.match(h.el('message').textContent,/discarded/);
+  }
 });
 
 test('idle is ignored; silent recordings and missing keys still rotate without stale transcription', async () => {
