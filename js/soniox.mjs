@@ -1,7 +1,7 @@
-import { renderSecondary, secondaryNames } from './secondary-sections.mjs?v=20261025-secondary2';
+import { renderSecondary, secondaryNames } from './secondary-sections.mjs?v=20261025-secondary3';
 import { clockLabel } from './wav-timing.mjs?v=20261015-clock1';
-import { prepareAudio } from './audio-import.mjs?v=20261025-secondary2';
-import { prepareManualAudio } from './manual-vad.mjs?v=20261025-secondary2';
+import { prepareAudio } from './audio-import.mjs?v=20261025-secondary3';
+import { prepareManualAudio } from './manual-vad.mjs?v=20261025-secondary3';
 import { CONFIG } from './config.mjs';
 
 export function renderTranscript(result, speakers, timing = null) {

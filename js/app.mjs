@@ -5,11 +5,11 @@ import { DevicesPanel, createAbortPrompt } from './devices-panel.mjs?v=20261021-
 import { clock, duration, dateStamp, timeStamp, recordingName, recordingTranscriptName, download } from './audio.mjs?v=20261015-clock1';
 import { MailControl } from './graph.mjs?v=20261023-upload1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';
-import { transcribeFile } from './soniox.mjs?v=20261025-secondary2';
-import { mergeSecondaryRecordings } from './secondary-recordings.mjs?v=20261025-secondary2';
-import { sortSecondaryFiles } from './secondary-sections.mjs?v=20261025-secondary2';
-import { prepareManualAudio, cancelManualVAD } from './manual-vad.mjs?v=20261025-secondary2';
-import { vadDownloadFile } from './vad-download.mjs?v=20261025-secondary2';
+import { transcribeFile } from './soniox.mjs?v=20261025-secondary3';
+import { mergeSecondaryRecordings } from './secondary-recordings.mjs?v=20261025-secondary3';
+import { sortSecondaryFiles } from './secondary-sections.mjs?v=20261025-secondary3';
+import { prepareManualAudio, cancelManualVAD } from './manual-vad.mjs?v=20261025-secondary3';
+import { vadDownloadFile } from './vad-download.mjs?v=20261025-secondary3';
 import { cancelFlacTasks } from './flac-tasks.mjs?v=20261017-flac2';
 import { PrivacyView } from './privacy-view.mjs?v=20261014-demo1';
 import { TranscriptDrive } from './transcript-drive.mjs?v=20261018-folders1';
@@ -354,7 +354,7 @@ function bootstrap() {
     if (!apiKey) { message('Import a Soniox key before using Secondary rec.', true); return; }
     try {
       const sorted = sortSecondaryFiles(selected), first = sorted[0].source, last = sorted.at(-1).source;
-      if (!confirm(`Merge ${selected.length} secondary WAV file${selected.length === 1 ? '' : 's'} from ${first.date} ${first.time} to ${last.date} ${last.time}, remove silence with Silero VAD, download one WAV, and transcribe it with Soniox speaker labels?\n\nThe recorder’s fixed summer clock (UTC+02:00) is converted to Norway local time (Europe/Oslo), with minute precision. Results will be divided by original file. Use EX.Drive to save the finished transcript.`)) return;
+      if (!confirm(`Merge ${selected.length} secondary WAV file${selected.length === 1 ? '' : 's'} from ${first.date} ${first.time} to ${last.date} ${last.time}, remove silence with Silero VAD, download one WAV, and transcribe it with Soniox speaker labels?\n\nSVOS and REC filename dates and times are used exactly as written, with minute precision and no timezone or daylight-saving adjustment. Results will be divided by original file. Use EX.Drive to save the finished transcript.`)) return;
       $('speakers').checked = true; $('secondaryStatus').textContent = ''; $('secondaryStatus').classList.remove('error');
       queueTranscription(null, apiKey, true, null, sorted.map(item => item.file)).catch(() => {});
     } catch (error) { message(error.message || 'Secondary files could not be selected.', true); }

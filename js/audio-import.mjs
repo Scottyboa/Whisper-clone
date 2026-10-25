@@ -1,4 +1,4 @@
-import { readSecondary } from './secondary-sections.mjs?v=20261025-secondary2';
+import { readSecondary } from './secondary-sections.mjs?v=20261025-secondary3';
 import { prepareAudio as prepareWav } from './wav-timing.mjs?v=20261015-clock1';
 import { runFlacTask } from './flac-tasks.mjs?v=20261017-flac2';
 

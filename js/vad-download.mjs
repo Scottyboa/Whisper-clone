@@ -1,4 +1,4 @@
-import { attachSecondary } from './secondary-sections.mjs?v=20261025-secondary2';
+import { attachSecondary } from './secondary-sections.mjs?v=20261025-secondary3';
 import { timingChunk } from './wav-timing.mjs?v=20261015-clock1';
 
 // Manual VAD returns a clean provider WAV plus its separately composed clock

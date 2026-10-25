@@ -20,9 +20,9 @@ function session({silent = [], fail = null} = {}) {
 }
 
 test('filename dates are parsed strictly and selection order is chronological, including tied minutes and midnight', () => {
-  assert.deepEqual(secondarySource(names[2]),{name:names[2],date:'2026-10-25',time:'16:19',sequence:58});
+  assert.deepEqual(secondarySource(names[2]),{name:names[2],date:'2026-10-25',time:'17:19',sequence:58});
   const sorted = sortSecondaryFiles([source('R-00059_2610260001_SVOS.WAV'),source(names[2]),source(names[0]),source('R-00039_2610251509_SVOS.WAV')]);
-  assert.deepEqual(sorted.map(item=>item.source.time),['14:09','14:09','16:19','23:01']);
+  assert.deepEqual(sorted.map(item=>item.source.time),['15:09','15:09','17:19','00:01']);
   assert.equal(sorted[0].source.sequence,39);
   for (const name of ['test.wav','R-1_2610321509_SVOS.WAV','R-1_2602291509_SVOS.WAV','R-1_2610252400_SVOS.WAV','R-1_2610251560_SVOS.WAV']) assert.throws(()=>secondarySource(name));
   assert.throws(()=>sortSecondaryFiles([source(names[0]),source(names[0])]),/Duplicate/);
@@ -33,14 +33,14 @@ test('merge uses one session, skips silent audio, preserves PCM and keeps all da
   const runner=session({silent:[names[1]]});
   const result=await mergeSecondaryRecordings([source(names[2],3000),source(names[1]),source(names[0],1000)],()=>{},runner.create);
   assert.deepEqual(runner.calls,names);assert.equal(runner.closes,1);
-  assert.equal(result.file.name,'secondary rec - 2026-10-25_14-09-00_to_16-19-00_(0m2s).wav');
+  assert.equal(result.file.name,'secondary rec - 2026-10-25_15-09-00_to_17-19-00_(0m2s).wav');
   const parsed=await readSecondary(result.file),view=new DataView(await parsed.file.arrayBuffer());
   assert.equal(parsed.file.size,64044);assert.equal(view.getInt16(44,true),1000);assert.equal(view.getInt16(32044,true),3000);
   assert.deepEqual(parsed.secondary.ranges,[[0,16000,0],[16000,16000,2]]);
   const text=renderSecondary({tokens:[{text:'First',start_ms:0,speaker:1},{text:'Last',start_ms:1000,speaker:1}]},parsed.secondary,renderTranscript);
   assert.match(text,/^secondary rec - .*_VAD-0m2s\.txt/);
-  assert.ok(text.indexOf('14:09 —')<text.indexOf('14:11 —'));assert.ok(text.indexOf('14:11 —')<text.indexOf('16:19 —'));
-  assert.match(text,/14:11[^]*\[No speech detected\.\]/);assert.equal(text.match(/Speaker 1:/g).length,2);
+  assert.ok(text.indexOf('15:09 —')<text.indexOf('15:11 —'));assert.ok(text.indexOf('15:11 —')<text.indexOf('17:19 —'));
+  assert.match(text,/15:11[^]*\[No speech detected\.\]/);assert.equal(text.match(/Speaker 1:/g).length,2);
   assert.doesNotMatch(text,/\(15:/,'filename times must not become invented clock timestamps inside clips');
 });
 
@@ -51,7 +51,7 @@ test('all silence and any failed source produce no partial merged output and alw
 
 test('titles use full dates across midnight and the last filename time rather than guessed voice-activation duration',async()=>{
   const runner=session();
-  const result=await mergeSecondaryRecordings([source('R-00059_2610260101_SVOS.WAV'),source('R-00058_2610260059_SVOS.WAV')],()=>{},runner.create);
+  const result=await mergeSecondaryRecordings([source('R-00059_2610260001_SVOS.WAV'),source('R-00058_2610252359_SVOS.WAV')],()=>{},runner.create);
   assert.equal(result.file.name,'secondary rec - 2026-10-25_23-59-00_to_2026-10-26_00-01-00_(0m2s).wav');
   assert.equal(secondaryNames(result.secondary).transcript,'secondary rec - 2026-10-25_23-59-00-000_to_2026-10-26_00-01-00-000_VAD-0m2s.txt');
 });
@@ -66,12 +66,12 @@ test('new VAD cuts preserve file sections across removed audio and a downloaded 
 });
 
 test('metadata validation rejects malformed ranges and changed filename dates',async()=>{
-  const map={version:2,sampleRate:16000,sources:[secondarySource(names[0])],ranges:[[0,16000,0]]};
+  const map={version:3,sampleRate:16000,sources:[secondarySource(names[0])],ranges:[[0,16000,0]]};
   assert.throws(()=>validateSecondary({...map,ranges:[[1,16000,0]]},16000));
   assert.throws(()=>validateSecondary({...map,sources:[{...map.sources[0],time:'12:00'}]},16000));
   const file=await attachSecondary(source(names[0]),map);
   const buffer=new Uint8Array(await file.arrayBuffer());
-  const at=Buffer.from(buffer).indexOf('"version":2');buffer[at+10]='9'.charCodeAt(0);
+  const at=Buffer.from(buffer).indexOf('"version":3');buffer[at+10]='9'.charCodeAt(0);
   await assert.rejects(readSecondary(new File([buffer],'broken.wav')),/Invalid secondary/);
 });
 
@@ -91,7 +91,7 @@ test('Soniox uploads one clean merged WAV with speakers forced on, renders each 
     const text=await transcribeFile(merged.file,'test',false,(status,text,error,context)=>{if(context)contexts.push(context);});
     assert.equal(uploads.length,1);assert.equal(uploads[0].size,64044);assert.equal(jobs.length,1);assert.equal(jobs[0].enable_speaker_diarization,true);
     assert.equal(await readSecondary(uploads[0]),null);assert.equal(deletes.length,2);
-    assert.match(text,/14:09[^]*Speaker 1: Hello[^]*16:19[^]*Speaker 2: There/);
+    assert.match(text,/15:09[^]*Speaker 1: Hello[^]*17:19[^]*Speaker 2: There/);
     assert.equal(contexts[0].filename,secondaryNames(merged.secondary).transcript);
   } finally {globalThis.fetch=original;}
 });
@@ -116,4 +116,18 @@ test('provider text without usable token timestamps fails instead of assigning a
   assert.throws(()=>renderSecondary({text:'No token timing'},merged.secondary,renderTranscript),/timestamps/);
   assert.throws(()=>renderSecondary({tokens:[{text:'No timestamp'}]},merged.secondary,renderTranscript),/timestamps/);
   assert.throws(()=>renderSecondary({tokens:[{text:'Too late',start_ms:1001}]},merged.secondary,renderTranscript),/outside/);
+});
+
+
+test('REC and SVOS files merge together in filename order with unadjusted titles and source headings',async()=>{
+  const rec='R-00059_2610252019_REC.WAV',runner=session();
+  assert.deepEqual(secondarySource(rec),{name:rec,date:'2026-10-25',time:'20:19',sequence:59});
+  assert.equal(secondarySource('R-00059_2610252019_rec.wav').time,'20:19');
+  const merged=await mergeSecondaryRecordings([source(rec,3000),source(names[2],2000),source(names[0],1000)],()=>{},runner.create);
+  assert.deepEqual(runner.calls,[names[0],names[2],rec]);
+  assert.equal(merged.file.name,'secondary rec - 2026-10-25_15-09-00_to_20-19-00_(0m3s).wav');
+  const prepared=await readSecondary(merged.file);assert.equal(prepared.secondary.version,3);
+  const text=renderSecondary({tokens:[{text:'First',start_ms:0,speaker:1},{text:'Middle',start_ms:1000,speaker:2},{text:'REC clip',start_ms:2000,speaker:1}]},prepared.secondary,renderTranscript);
+  assert.match(text,/15:09[^]*Speaker 1: First[^]*17:19[^]*Speaker 2: Middle[^]*20:19 — R-00059_2610252019_REC.WAV[^]*Speaker 1: REC clip/);
+  assert.match(secondaryNames(prepared.secondary).transcript,/_20-19-00-000_VAD-0m3s\.txt$/);
 });
