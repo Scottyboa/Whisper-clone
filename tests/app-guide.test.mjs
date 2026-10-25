@@ -54,8 +54,9 @@ test('the real page has a labelled guide at the top and covers all existing cont
   assert.match(html,/<dialog id="guideDialog"[^>]*aria-labelledby="guideTitle"/);
   assert.match(html,/<button id="vadProcess"[^>]*>VAD processing<\/button>/);
   assert.ok(html.indexOf('id="vadProcess"')<html.indexOf('id="transcribe"'));
+  assert.match(html,/<input id="secondaryFiles"[^>]*multiple/);
   const guide=html.slice(html.indexOf('<dialog id="guideDialog"'),html.indexOf('<dialog id="driveImportDialog"'));
-  for(const text of ['Start','Pause / Resume','Stop','Abort','Keep awake','History','VAD processing','stop and transcribe','abort recording','Link','Unlink','start','pause','resume','stop','Enable audio here','Disconnect','Refresh','Upload File','Transcribe','Speaker labels','Import Key','Clear','EX.Drive','Imp. Drive','Clear Drive','COMPLETE.txt','Privacy view'])assert.ok(guide.includes(text),text);
+  for(const text of ['Start','Pause / Resume','Stop','Abort','Keep awake','History','VAD processing','Secondary rec','stop and transcribe','abort recording','Link','Unlink','start','pause','resume','stop','Enable audio here','Disconnect','Refresh','Upload File','Transcribe','Speaker labels','Import Key','Clear','EX.Drive','Imp. Drive','Clear Drive','COMPLETE.txt','Privacy view'])assert.ok(guide.includes(text),text);
   const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(match=>match[1]);
   assert.equal(new Set(ids).size,ids.length);
 });

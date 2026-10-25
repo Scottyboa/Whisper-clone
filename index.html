@@ -6,12 +6,12 @@
   <meta name="referrer" content="no-referrer">
   <title>Whisper-clone</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="style.css?v=20261023-wav1">
+  <link rel="stylesheet" href="style.css?v=20261025-secondary1">
   <script defer src="vendor/ort/ort.min.js"></script>
   <script defer src="vendor/vad/bundle.min.js"></script>
   <script defer src="vendor/msal/msal-browser.min.js"></script>
   <script defer src="vendor/jszip/jszip.min.js"></script>
-  <script type="module" src="js/app.mjs?v=20261023-wav1"></script>
+  <script type="module" src="js/app.mjs?v=20261025-secondary1"></script>
 </head>
 <body>
   <div class="privacy-controls">
@@ -111,6 +111,8 @@
         </div>
         <div class="file-row">
           <button id="upload" type="button">Upload File</button>
+          <button id="secondaryRec" type="button">Secondary rec</button>
+          <input id="secondaryFiles" type="file" accept=".wav,audio/wav,audio/x-wav" multiple hidden>
           <input id="file" type="file" accept="audio/*,.wav,.mp3,.m4a,.webm,.ogg,.flac,.aac,.mp4" hidden>
           <span id="fileName"></span>
           <div class="transcript-actions">
@@ -125,6 +127,7 @@
         <div id="message" role="status" aria-live="polite"></div>
         <div id="audioDownloadStatus" role="status" aria-live="polite"></div>
         <div id="vadStatus" role="status" aria-live="polite"></div>
+        <div id="secondaryStatus" role="status" aria-live="polite"></div>
         <div id="driveMessage" role="status" aria-live="polite"></div>
       </section>
     </main>
@@ -195,6 +198,7 @@
         <p><strong>VAD processing:</strong> after Upload File, use this button to run Silero VAD on a WAV, FLAC or MP3 and download a speech-only <code>-VAD.wav</code>, without a Soniox key, transcription or Drive upload. The original file stays selected and is not overwritten. No speech means no download. The same model and thresholds are used as for manual transcription.</p>
         <p>With speaker labels enabled, recordings made by this app can show original clock times beside speaker turns, even after VAD removed silence. Downloaded WAVs preserve available clock metadata, including after manual VAD processing. Playback is shortened, so its positions no longer match elapsed time from the original recording start.</p>
         <p>Every manual transcription runs VAD, including WAV and FLAC files from other recorders. App-generated FLACs first recover the audio kept by the original VAD, then run the manual VAD pass. Existing clock metadata is preserved through further trimming; files without it do not gain original clock times. Preparation can take several minutes for long files. A decoding or VAD failure stops the upload so the full file is never submitted as a fallback. Older app-generated FLACs remain supported for import and VAD processing.</p>
+        <p><strong>Secondary rec:</strong> select multiple WAVs named like <code>R-00058_2610251719_SVOS.WAV</code> and confirm. The app orders them by the filename dates and times, runs Silero VAD, downloads one merged WAV, and submits that merged speech to Soniox once with speaker labels on. Its name starts with <code>secondary rec - </code> and follows the usual recording filename format, using the first and last filename times and the retained duration. Results have a title and a separate dated section for each original file, including files with no detected speech. Filename times have minute precision and do not describe exact clock times inside voice-activated clips. Original files are not changed. The merged WAV keeps its source sections for reimport. Use EX.Drive to save the transcript with its secondary recording title; it is not saved to Drive automatically.</p>
         <p><strong>Clear</strong> beside Import Key removes the Soniox key from this tab’s session after confirmation. It does not delete Drive files.</p>
       </section>
       <section aria-labelledby="guideDrive">

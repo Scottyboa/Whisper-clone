@@ -1,3 +1,4 @@
+import { retainedSecondary } from './secondary-sections.mjs?v=20261025-secondary1';
 import { SAMPLE_RATE, VAD_RULES, toPCM, wavBlob } from './audio.mjs?v=20261015-clock1';
 import { validateTiming } from './wav-timing.mjs?v=20261015-clock1';
 
@@ -53,7 +54,7 @@ export function retainedTiming(timing, ranges, keptSamples) {
   return result;
 }
 
-export async function trimDecodedAudio({ file, timing }, chunks, processor, progress = () => {}) {
+export async function trimDecodedAudio({ file, timing, secondary }, chunks, processor, progress = () => {}) {
   const parts = [], ranges = []; let cursor = 0, valid = 0, kept = 0, reported = -1;
   const retain = event => {
     if (event.msg !== 'SPEECH_END' || !event.audio?.length) return;
@@ -74,6 +75,6 @@ export async function trimDecodedAudio({ file, timing }, chunks, processor, prog
     const map = retainedTiming(timing, ranges, kept);
     const result = new File([wavBlob(parts)], (file.name || 'audio').replace(/\.[^.]*$/, '') + '.wav', { type: 'audio/wav' });
     progress(1);
-    return { file: result, timing: map };
+    return { file: result, timing: map, ...(secondary ? {secondary:retainedSecondary(secondary, ranges, kept)} : {}) };
   } finally { processor.reset(); }
 }

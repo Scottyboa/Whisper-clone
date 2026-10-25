@@ -1,8 +1,22 @@
 import { VAD_RULES } from './audio.mjs?v=20261015-clock1';
 import { decodeFileChunks, decodedChunks } from './file-audio.mjs?v=20261023-upload1';
-import { trimDecodedAudio } from './file-vad.mjs?v=20261023-upload1';
+import { trimDecodedAudio } from './file-vad.mjs?v=20261025-secondary1';
 
-let nativeResolve, nativeReject;
+let nativeResolve, nativeReject, modelPromise;
+async function getModel() {
+  if (!modelPromise) modelPromise = (async () => {
+    await import('../vendor/ort/ort.min.js');
+    await import('../vendor/vad/bundle.min.js');
+    return self.vad.NonRealTimeVAD.new({ ...VAD_RULES,
+      modelURL: new URL('../vendor/vad/silero_vad_legacy.onnx', import.meta.url).href,
+      ortConfig: ort => {
+        ort.env.wasm.wasmPaths = new URL('../vendor/ort/', import.meta.url).href;
+        ort.env.wasm.numThreads = 1;
+      },
+    });
+  })();
+  return modelPromise;
+}
 self.onmessage = async ({ data }) => {
   if (data.nativeAudio || data.nativeError) {
     if (data.nativeError) nativeReject?.(new Error(data.nativeError));
@@ -10,15 +24,8 @@ self.onmessage = async ({ data }) => {
     return;
   }
   try {
-    await import('../vendor/ort/ort.min.js');
-    await import('../vendor/vad/bundle.min.js');
-    const model = await self.vad.NonRealTimeVAD.new({ ...VAD_RULES,
-      modelURL: new URL('../vendor/vad/silero_vad_legacy.onnx', import.meta.url).href,
-      ortConfig: ort => {
-        ort.env.wasm.wasmPaths = new URL('../vendor/ort/', import.meta.url).href;
-        ort.env.wasm.numThreads = 1;
-      },
-    });
+    const model = await getModel();
+    model.frameProcessor.reset(); model.frameProcessor.resume();
     const decodeOther = () => new Promise((resolve, reject) => {
       nativeResolve = resolve; nativeReject = reject; self.postMessage({ decodeNative: true });
     });

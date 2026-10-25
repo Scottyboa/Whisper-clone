@@ -1,10 +1,14 @@
+import { attachSecondary } from './secondary-sections.mjs?v=20261025-secondary1';
 import { timingChunk } from './wav-timing.mjs?v=20261015-clock1';
 
 // Manual VAD returns a clean provider WAV plus its separately composed clock
 // map. Keep that map in downloaded WAVs so reimport can still label clock times.
-export async function vadDownloadFile({ file, timing }) {
+export async function vadDownloadFile({ file, timing, secondary }) {
   const name = (file.name || 'audio.wav').replace(/\.[^.]*$/, '') + '-VAD.wav';
-  if (!timing) return new File([file], name, { type: 'audio/wav' });
+  if (!timing) {
+    const result = new File([file], name, {type:'audio/wav'});
+    return secondary ? attachSecondary(result, secondary) : result;
+  }
   const header = new Uint8Array(await file.slice(0, 44).arrayBuffer());
   const view = new DataView(header.buffer);
   const id = at => new TextDecoder().decode(header.subarray(at, at + 4));
@@ -20,5 +24,6 @@ export async function vadDownloadFile({ file, timing }) {
   if (size - 8 > 0xffffffff) throw new Error('The processed audio is too large for a WAV file.');
   view.setUint32(4, size - 8, true);
   // Blob slices avoid copying a long recording into a second PCM buffer.
-  return new File([header, file.slice(44), metadata], name, { type: 'audio/wav' });
+  const result = new File([header, file.slice(44), metadata], name, {type:'audio/wav'});
+  return secondary ? attachSecondary(result, secondary, (file.size - 44) / 2) : result;
 }

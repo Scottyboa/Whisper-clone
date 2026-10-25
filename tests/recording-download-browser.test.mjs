@@ -21,7 +21,7 @@ test('Chrome downloads playable VAD WAV with original clocks and restarts indepe
   const fixtures = {
     // This test isolates the recording download and clock import path. The separate
     // manual-VAD browser test runs the real speech model and decoder worker.
-    '/js/manual-vad.mjs': `import {prepareAudio} from './audio-import.mjs';export async function prepareManualAudio(file){window.testManualVAD=true;return prepareAudio(file)}export function cancelManualVAD(){}`,
+    '/js/manual-vad.mjs': `import {prepareAudio} from './audio-import.mjs';export async function prepareManualAudio(file){window.testManualVAD=true;return prepareAudio(file)}export function cancelManualVAD(){}export function createManualVADSession(){throw new Error('Not used in this fixture')}`,
     '/js/recorder.mjs': `import {Recorder as Base} from './test-real-recorder.mjs';export class Recorder extends Base {
       constructor(options){super({...options,now:()=>window.testNow,createVAD:async callbacks=>({async drainAndPause(){callbacks.onSpeechEnd(new Float32Array(16000).fill(.25),[[0,16000,window.testNow-2000]])},destroy(){}})});window.testRecorder=this;}}`,
     '/js/graph.mjs': `export class MailControl {constructor(options){Object.assign(this,options);window.testCommand=options.onCommand;this.active=false}async client(){return {}}unlink(){}}`,

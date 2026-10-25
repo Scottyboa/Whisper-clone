@@ -5,9 +5,11 @@ import { DevicesPanel, createAbortPrompt } from './devices-panel.mjs?v=20261021-
 import { clock, duration, dateStamp, timeStamp, recordingName, recordingTranscriptName, download } from './audio.mjs?v=20261015-clock1';
 import { MailControl } from './graph.mjs?v=20261023-upload1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';
-import { transcribeFile } from './soniox.mjs?v=20261023-upload1';
-import { prepareManualAudio, cancelManualVAD } from './manual-vad.mjs?v=20261023-upload1';
-import { vadDownloadFile } from './vad-download.mjs?v=20261023-wav1';
+import { transcribeFile } from './soniox.mjs?v=20261025-secondary1';
+import { mergeSecondaryRecordings } from './secondary-recordings.mjs?v=20261025-secondary1';
+import { sortSecondaryFiles } from './secondary-sections.mjs?v=20261025-secondary1';
+import { prepareManualAudio, cancelManualVAD } from './manual-vad.mjs?v=20261025-secondary1';
+import { vadDownloadFile } from './vad-download.mjs?v=20261025-secondary1';
 import { cancelFlacTasks } from './flac-tasks.mjs?v=20261017-flac2';
 import { PrivacyView } from './privacy-view.mjs?v=20261014-demo1';
 import { TranscriptDrive } from './transcript-drive.mjs?v=20261018-folders1';
@@ -22,7 +24,7 @@ function bootstrap() {
   const $ = id => document.getElementById(id);
   new AppGuide({dialog:$('guideDialog'),button:$('guide'),code:$('guideCode'),close:$('guideClose')});
   const KEY = 'whisper-clone.soniox-key', HISTORY = 'whisper-clone.recordings';
-  let apiKey = '', history = [], file = null, transcribing = false, linking = false;
+  let apiKey = '', history = [], file = null, transcribing = false, linking = false, transcriptFilename = null;
   let wakeLock = null, wakeGeneration = 0, importBusy = false;
   let driveBusy = false, drivePending = 0, transcriptionPending = 0;
   let driveQueue = Promise.resolve(), transcriptionQueue = Promise.resolve(), audioDownloadQueue = Promise.resolve();
@@ -93,6 +95,7 @@ function bootstrap() {
     $('transcribe').disabled = !apiKey || !file || transcribing || vadProcessing;
     $('import').disabled = transcribing || importBusy;
     $('upload').disabled = transcribing || vadProcessing;
+    $('secondaryRec').disabled = transcribing || vadProcessing;
   }
   const driveMessage = (text = '', error = false) => {
     $('driveMessage').textContent = text;
@@ -114,16 +117,16 @@ function bootstrap() {
   async function driveAction(action, options) {
     // Export snapshots the current text. Import replaces the field only when
     // the user explicitly selects COMPLETE.txt insertion in its dialog.
-    const text = $('transcript').value;
+    const text = $('transcript').value, exportName = transcriptFilename;
     return queueDrive(async () => {
       driveMessage('Connecting to OneDrive…');
       try {
         if (action === 'export') {
-          const name = await drive.upload(text, {folders:options.folders});
+          const name = await drive.upload(text, {folders:options.folders, ...(exportName ? {name:exportName} : {})});
           driveMessage(`Saved ${name} to OneDrive: ${options.folders.join(', ')}.`);
         } else if (action === 'import') {
           const result = await drive.exportZip(driveMessage, {includeZip:options.zip,folders:options.folders});
-          if (options.paste) { $('transcript').value = result.completeText; updateDrive(); }
+          if (options.paste) { $('transcript').value = result.completeText; transcriptFilename = null; updateDrive(); }
           if (options.zip) download(result.blob, result.name);
           const actions = [options.paste ? 'Inserted COMPLETE.txt' : '', options.zip ? 'Downloaded ZIP' : ''].filter(Boolean);
           driveMessage(`${actions.join(' · ')} · ${result.count} text files.`);
@@ -340,19 +343,52 @@ function bootstrap() {
       status.classList.add('error'); status.textContent = `VAD processing failed. ${error.message || ''}`;
     } finally { vadProcessing = false; updateKey(); }
   });
-  function queueTranscription(source, key, speakers, automatic = null) {
+  $('secondaryRec').addEventListener('click', () => {
+    if (transcribing || vadProcessing) return;
+    if (!apiKey) { message('Import a Soniox key before using Secondary rec.', true); return; }
+    $('secondaryFiles').value = ''; $('secondaryFiles').click();
+  });
+  $('secondaryFiles').addEventListener('change', () => {
+    const selected = Array.from($('secondaryFiles').files || []);
+    if (!selected.length || transcribing || vadProcessing) return;
+    if (!apiKey) { message('Import a Soniox key before using Secondary rec.', true); return; }
+    try {
+      const sorted = sortSecondaryFiles(selected), first = sorted[0].source, last = sorted.at(-1).source;
+      if (!confirm(`Merge ${selected.length} secondary WAV file${selected.length === 1 ? '' : 's'} from ${first.date} ${first.time} to ${last.date} ${last.time}, remove silence with Silero VAD, download one WAV, and transcribe it with Soniox speaker labels?\n\nThe dates and times come from the filenames, with minute precision. Results will be divided by original file. Use EX.Drive to save the finished transcript.`)) return;
+      $('speakers').checked = true; $('secondaryStatus').textContent = ''; $('secondaryStatus').classList.remove('error');
+      queueTranscription(null, apiKey, true, null, sorted.map(item => item.file)).catch(() => {});
+    } catch (error) { message(error.message || 'Secondary files could not be selected.', true); }
+  });
+  function queueTranscription(source, key, speakers, automatic = null, secondaryFiles = null) {
     transcriptionPending++; transcribing = true; updateKey();
     const job = transcriptionQueue.then(async () => {
-      // Keep this recording available for a manual retry if a provider fails.
-      file = source; $('fileName').textContent = source.name;
-      let cleanupFailed = false;
+      let cleanupFailed = false, outputFilename = null;
       try {
-        const text = await transcribeFile(source, key, speakers, (status, transcript, error) => {
-          if (transcript !== undefined) { $('transcript').value = transcript; updateDrive(); }
+        if (secondaryFiles) {
+          const merged = await mergeSecondaryRecordings(secondaryFiles, status => message(status));
+          if (pageClosing) return;
+          if (merged.empty) throw new Error('No speech detected in the selected secondary recordings. No file downloaded or sent to Soniox.');
+          source = merged.file;
+          try {
+            download(source, source.name);
+            $('secondaryStatus').textContent = `Merged WAV download requested: ${source.name}`;
+          } catch (error) {
+            $('secondaryStatus').classList.add('error');
+            $('secondaryStatus').textContent = `Merged WAV download failed; transcription will continue. ${error.message || ''}`;
+          }
+        }
+        if (pageClosing) return;
+        // Keep the merged WAV and its source map available for a manual retry.
+        file = source; $('fileName').textContent = source.name;
+        const text = await transcribeFile(source, key, speakers, (status, transcript, error, context) => {
+          if (transcript !== undefined) {
+            outputFilename = context?.filename || null; transcriptFilename = outputFilename;
+            $('transcript').value = transcript; updateDrive();
+          }
           if (error) cleanupFailed = true;
           message(status, error);
-        }, { manualVAD: !automatic });
-        $('transcript').value = text; updateDrive();
+        }, { manualVAD: !automatic && !secondaryFiles });
+        $('transcript').value = text; transcriptFilename = outputFilename; updateDrive();
         if (automatic) {
           await queueDrive(async () => {
             driveMessage('Saving recording transcript to OneDrive…');

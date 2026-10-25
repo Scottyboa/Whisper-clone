@@ -1,6 +1,7 @@
+import { renderSecondary, secondaryNames } from './secondary-sections.mjs?v=20261025-secondary1';
 import { clockLabel } from './wav-timing.mjs?v=20261015-clock1';
-import { prepareAudio } from './audio-import.mjs?v=20261017-flac2';
-import { prepareManualAudio } from './manual-vad.mjs?v=20261023-upload1';
+import { prepareAudio } from './audio-import.mjs?v=20261025-secondary1';
+import { prepareManualAudio } from './manual-vad.mjs?v=20261025-secondary1';
 import { CONFIG } from './config.mjs';
 
 export function renderTranscript(result, speakers, timing = null) {
@@ -59,7 +60,7 @@ export async function transcribeFile(file, apiKey, speakers, onStatus = () => {}
     if (!fileId) throw new Error('Soniox did not return a file ID.');
     const job = await (await request('transcriptions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
       model: CONFIG.sonioxModel, file_id: fileId,
-      enable_speaker_diarization: !!speakers, enable_language_identification: true,
+      enable_speaker_diarization: !!speakers || !!prepared.secondary, enable_language_identification: true,
     }) })).json();
     transcriptionId = job.id;
     if (!transcriptionId) throw new Error('Soniox did not return a transcription ID.');
@@ -73,9 +74,9 @@ export async function transcribeFile(file, apiKey, speakers, onStatus = () => {}
       await wait(2000);
     }
     const result = await (await request(`transcriptions/${encodeURIComponent(transcriptionId)}/transcript`)).json();
-    const text = renderTranscript(result, speakers, prepared.timing);
+    const text = prepared.secondary ? renderSecondary(result, prepared.secondary, renderTranscript) : renderTranscript(result, speakers, prepared.timing);
     // Display the result before deleting provider resources.
-    onStatus('Cleaning up…', text);
+    onStatus('Cleaning up…', text, false, prepared.secondary ? {filename:secondaryNames(prepared.secondary).transcript} : null);
     return text;
   } finally {
     if (transcriptionId) cleanupOK = await cleanup(`transcriptions/${encodeURIComponent(transcriptionId)}`) && cleanupOK;

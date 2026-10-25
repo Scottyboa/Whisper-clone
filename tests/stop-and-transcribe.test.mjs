@@ -9,12 +9,14 @@ import * as audio from '../js/audio.mjs';
 import { createDriveImportPrompt } from '../js/drive-import-prompt.mjs';
 import { AppGuide } from '../js/app-guide.mjs';
 import { vadDownloadFile } from '../js/vad-download.mjs';
+import { mergeSecondaryRecordings as realMerge } from '../js/secondary-recordings.mjs';
+import { sortSecondaryFiles, secondaryNames } from '../js/secondary-sections.mjs';
 
 const account = { homeAccountId: 'recording-account' };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => { resolve=a; reject=b; }); return {promise,resolve,reject}; };
 const app = readFileSync(new URL('../js/app.mjs', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '');
-function harness({ key = 'soniox-key', speech = true, timed = false, transcribe, upload, onCapture, onDrain, downloadError = false, abortConfirmed = true, readDrive, prepareVAD } = {}) {
+function harness({ key = 'soniox-key', speech = true, timed = false, transcribe, upload, onCapture, onDrain, downloadError = false, abortConfirmed = true, readDrive, prepareVAD, secondaryMerge, secondaryConfirmed = true } = {}) {
   const elements = new Map(), downloads = [], transcriptions = [], uploads = [], commands = [], captures = [], importCalls = [];
   const makeElement = () => ({
     value: '', checked: false, disabled: false, textContent: '', children: [], listeners: new Map(),
@@ -53,12 +55,12 @@ function harness({ key = 'soniox-key', speech = true, timed = false, transcribe,
   const context = vm.createContext({
     ...audio, download: (blob,name) => { downloads.push({blob,name}); if(downloadError)throw new Error('download blocked'); }, Recorder, MailControl: Mail, TranscriptDrive: Drive,
     prepareManualAudio: prepareVAD || (async source => ({file:new File([audio.wavBlob([new Int16Array(16000)])],source.name.replace(/\.[^.]*$/,'')+'.wav',{type:'audio/wav'}),timing:null})),
-    vadDownloadFile, cancelFlacTasks(){}, cancelManualVAD(){},
+    vadDownloadFile, sortSecondaryFiles, mergeSecondaryRecordings: secondaryMerge || ((files,status)=>realMerge(files,status,()=>({prepare:async file=>({file,timing:null}),close(){}}))), cancelFlacTasks(){}, cancelManualVAD(){},
     PrivacyView: class {}, AppGuide, File, createDriveImportPrompt, DeviceControl:Devices, DevicesPanel:class{dispose(){}},createAbortPrompt:()=>async()=>abortConfirmed,
     transcribeFile: async (...args) => { transcriptions.push(args); return transcribe ? transcribe(...args) : 'Speaker 1: Hello\n\nSpeaker 2: Hi'; },
     sessionStorage: {getItem: name => name.endsWith('soniox-key') ? key : null, setItem() {}, removeItem() {}},
     document: {getElementById:el,querySelector:makeElement,createElement:makeElement,createTextNode:text=>({text}),addEventListener() {}},
-    window: {opener:null,addEventListener() {}}, location: {}, navigator: {}, setInterval() {}, confirm:()=>true,
+    window: {opener:null,addEventListener() {}}, location: {}, navigator: {}, setInterval() {}, confirm:()=>secondaryConfirmed,
   });
   vm.runInContext(app,context);
   return { el, downloads, transcriptions, uploads, commands, captures, recorder, mail, devices, importCalls, advance: ms => {now+=ms;} };
@@ -514,4 +516,57 @@ test('VAD-only silence downloads nothing and leaves the controls available',asyn
   await h.el('vadProcess').listeners.get('click')();
   assert.equal(h.downloads.length,0);assert.equal(h.transcriptions.length,0);assert.equal(h.uploads.length,0);
   assert.equal(h.el('vadProcess').disabled,false);assert.match(h.el('vadStatus').textContent,/No speech detected/);
+});
+
+
+const secondarySources = () => ['R-00058_2610251719_SVOS.WAV','R-00040_2610251509_SVOS.WAV'].map(name=>new File([audio.wavBlob([new Int16Array(16000).fill(1200)])],name,{type:'audio/wav'}));
+test('Secondary rec confirms, downloads one correctly named WAV and transcribes with forced speakers in the common queue',async()=>{
+  const h=harness();await h.mail.onCommand('start');h.el('speakers').checked=false;
+  h.el('secondaryFiles').files=secondarySources();h.el('secondaryFiles').listeners.get('change')();
+  for(let i=0;i<100&&!h.transcriptions.length;i++)await tick();
+  assert.equal(h.downloads.length,1);assert.match(h.downloads[0].name,/^secondary rec - 2026-10-25_15-09-00_to_17-19-00_\(0m2s\)\.wav$/);
+  assert.equal(h.transcriptions[0][0],h.downloads[0].blob);assert.equal(h.transcriptions[0][2],true);assert.equal(h.transcriptions[0][4].manualVAD,false);
+  assert.equal(h.el('speakers').checked,true);assert.equal(h.recorder.state,'recording');assert.equal(h.uploads.length,0);
+});
+
+test('Secondary rec cancellation, missing key and invalid filenames make no processing or provider request',async()=>{
+  for(const options of [{secondaryConfirmed:false},{key:''}]){
+    let merges=0;const h=harness({...options,secondaryMerge:async()=>{merges++;}});
+    h.el('secondaryFiles').files=secondarySources();h.el('secondaryFiles').listeners.get('change')();await tick();
+    assert.equal(merges,0);assert.equal(h.downloads.length,0);assert.equal(h.transcriptions.length,0);
+  }
+  const bad=harness();bad.el('secondaryFiles').files=[new File(['x'],'unknown.wav')];bad.el('secondaryFiles').listeners.get('change')();await tick();
+  assert.equal(bad.transcriptions.length,0);assert.match(bad.el('message').textContent,/Unsupported secondary filename/);
+});
+
+test('Secondary rec no-speech/failure restores controls without partial uploads or replacing the transcript',async()=>{
+  for(const merge of [async()=>({empty:true}),async()=>{throw new Error('Bad source WAV');}]){
+    const h=harness({secondaryMerge:merge});h.el('transcript').value='Keep old transcript';
+    h.el('secondaryFiles').files=secondarySources();h.el('secondaryFiles').listeners.get('change')();await tick();
+    assert.equal(h.downloads.length,0);assert.equal(h.transcriptions.length,0);assert.equal(h.el('secondaryRec').disabled,false);
+    assert.equal(h.el('transcript').value,'Keep old transcript');assert.match(h.el('message').textContent,/No speech|Bad source/);
+  }
+});
+
+test('Secondary rec continues transcription after a failed download and is available for retry',async()=>{
+  const h=harness({downloadError:true});h.el('secondaryFiles').files=secondarySources();h.el('secondaryFiles').listeners.get('change')();
+  for(let i=0;i<100&&!h.transcriptions.length;i++)await tick();
+  assert.equal(h.transcriptions.length,1);assert.match(h.el('secondaryStatus').textContent,/transcription will continue/);
+  await tick();assert.equal(h.el('transcribe').disabled,false);assert.equal(h.el('fileName').textContent,h.downloads[0].name);
+});
+
+test('manual Drive export keeps the secondary transcript filename and normal transcription clears it',async()=>{
+  const h=harness({transcribe:async(source,key,speakers,status)=>{
+    if(source.name.startsWith('secondary rec - ')){
+      const {prepareAudio}=await import('../js/audio-import.mjs');const prepared=await prepareAudio(source);
+      const filename=secondaryNames(prepared.secondary).transcript;status('Cleaning up…',filename+'\n\nSections',false,{filename});return filename+'\n\nSections';
+    }
+    return 'Ordinary transcript';
+  }});
+  h.el('secondaryFiles').files=secondarySources();h.el('secondaryFiles').listeners.get('change')();
+  for(let i=0;i<100&&h.el('secondaryRec').disabled;i++)await tick();
+  const exportText=async()=>{const pending=h.el('exportDrive').listeners.get('click')();h.el('driveImportApply').listeners.get('click')();await pending;};
+  await exportText();assert.match(h.uploads[0].options.name,/^secondary rec - .*_VAD-0m2s\.txt$/);
+  h.el('file').files=[new File(['manual'],'ordinary.wav')];h.el('file').listeners.get('change')();h.el('transcribe').listeners.get('click')();await tick();
+  await exportText();assert.equal(h.uploads[1].options.name,undefined);assert.equal(h.uploads[1].text,'Ordinary transcript');
 });

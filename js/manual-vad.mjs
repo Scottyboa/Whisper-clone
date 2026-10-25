@@ -1,4 +1,4 @@
-import { prepareAudio } from './audio-import.mjs?v=20261017-flac2';
+import { prepareAudio } from './audio-import.mjs?v=20261025-secondary1';
 
 const active = new Map();
 async function decodeNative(file) {
@@ -12,29 +12,52 @@ async function decodeNative(file) {
     channelData: Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i).slice()) };
 }
 
-function runVAD(prepared, progress) {
+function createVADRunner() {
   if (typeof Worker === 'undefined') throw new Error('Audio preparation requires a browser with Web Worker support.');
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL('./manual-vad-worker.mjs?v=20261023-upload1', import.meta.url), { type: 'module' });
-    let finished = false;
-    const finish = (error, result) => {
-      if (finished) return; finished = true; active.delete(worker); worker.terminate();
-      error ? reject(error) : resolve(result);
-    };
-    active.set(worker, () => finish(new Error('Audio preparation cancelled.')));
-    worker.onerror = () => finish(new Error('The VAD worker could not run. Nothing was uploaded.'));
-    worker.onmessageerror = () => finish(new Error('The VAD result could not be read. Nothing was uploaded.'));
-    worker.onmessage = async ({ data }) => {
-      if (data.decodeNative) {
-        try {
-          const nativeAudio = await decodeNative(prepared.file);
-          if (!finished) worker.postMessage({ nativeAudio }, nativeAudio.channelData.map(channel => channel.buffer));
-        } catch (error) { finish(error); }
-      } else if (typeof data.progress === 'number') progress(data.progress);
-      else finish(data.error ? new Error(data.error) : null, data.result);
-    };
-    try { worker.postMessage({ prepared }); } catch (error) { finish(error); }
-  });
+  const worker = new Worker(new URL('./manual-vad-worker.mjs?v=20261025-secondary1', import.meta.url), {type:'module'});
+  let pending = null, closed = false;
+  const finish = (error, result) => {
+    const job = pending; pending = null;
+    if (job) error ? job.reject(error) : job.resolve(result);
+  };
+  const close = (error = new Error('Audio preparation cancelled.')) => {
+    if (closed) return; closed = true; active.delete(worker); worker.terminate(); finish(error);
+  };
+  active.set(worker, close);
+  worker.onerror = () => close(new Error('The VAD worker could not run. Nothing was uploaded.'));
+  worker.onmessageerror = () => close(new Error('The VAD result could not be read. Nothing was uploaded.'));
+  worker.onmessage = async ({data}) => {
+    const job = pending;
+    if (!job || closed) return;
+    if (data.decodeNative) {
+      try {
+        const nativeAudio = await decodeNative(job.prepared.file);
+        if (!closed && pending === job) worker.postMessage({nativeAudio}, nativeAudio.channelData.map(channel => channel.buffer));
+      } catch (error) { finish(error); }
+    } else if (typeof data.progress === 'number') job.progress(data.progress);
+    else finish(data.error ? new Error(data.error) : null, data.result);
+  };
+  return {
+    run(prepared, progress) {
+      if (closed) return Promise.reject(new Error('Audio preparation cancelled.'));
+      if (pending) return Promise.reject(new Error('Audio preparation is already running.'));
+      return new Promise((resolve, reject) => {
+        pending = {prepared, progress, resolve, reject};
+        try { worker.postMessage({prepared}); } catch (error) { finish(error); }
+      });
+    }, close,
+  };
+}
+async function runVAD(prepared, progress) {
+  const runner = createVADRunner();
+  try { return await runner.run(prepared, progress); }
+  finally { runner.close(); }
+}
+// A batch loads one model, resets inference state between source files, and
+// releases the worker on success, failure or page close.
+export function createManualVADSession() {
+  const runner = createVADRunner();
+  return {prepare:(file, status) => prepareManualAudio(file, status, runner.run), close:runner.close};
 }
 
 export async function prepareManualAudio(file, onStatus = () => {}, run = runVAD) {
