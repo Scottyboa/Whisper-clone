@@ -2,10 +2,17 @@
 
 Use Secondary rec after importing a Soniox key. Select up to 1,000 WAVs named
 like `R-00058_2610251719_SVOS.WAV`, then confirm merge, download and transcription.
-The name encodes YY MM DD HH mm. Calendar dates, hour and minute are validated;
+The name encodes YY MM DD HH mm. This secondary recorder is assumed to stay
+on its summer clock (fixed UTC+02:00). Each filename timestamp is converted
+to Europe/Oslo for that recording date: winter times move back one hour,
+summer times stay the same. Date rollover is handled, including at midnight.
+The conversion is independent of the computer/browser timezone and today’s
+date. This assumption must be changed if the recorder is manually reset to
+winter time. Calendar dates, hour and minute are validated;
 unknown names and duplicate filenames fail before processing. Files sort by
-filename date and time, then recorder sequence number for tied minutes. File
-modification timestamps are never used. Filename years are interpreted as 2000–2099.
+the actual instant derived from the fixed recorder clock, then recorder sequence
+number for tied minutes. This preserves capture order across the repeated hour
+when Norway turns its clocks back. File modification timestamps are never used. Filename years are interpreted as 2000–2099.
 
 Each source receives the same pinned Silero VAD as manual transcription. One
 worker/model is reused for the batch, with its frame and model state reset
@@ -17,7 +24,8 @@ A decoding/VAD failure stops the batch before any partial provider request.
 The worker is released on success, error or page close.
 
 The downloaded WAV starts with `secondary rec - ` and uses the usual recording
-filename format. The interval uses the first and last selected filename times;
+filename format. The interval uses the corrected Norway times of the first
+and last selected files;
 the last filename time is the last clip's start label, not a measured stop time.
 Seconds are 00 placeholders because these names contain only minute precision.
 The parenthesized duration is the merged retained audio duration, rounded with
@@ -28,8 +36,10 @@ The app submits that merged speech to Soniox once, with speaker diarization on
 and no redundant VAD pass. Transcript tokens are assigned to their original
 source sections by their sample offsets in the merged audio. Speaker paragraphs
 restart at every source boundary, even if the speaker label is unchanged.
-Sections show the original date, minute and filename. A source with no detected
-speech gets an explicit marker; an entirely silent batch produces no WAV or
+Sections show the corrected Norway date and minute, alongside the unchanged
+original filename for reference. The merge confirmation, WAV name, TXT title,
+section headings and Drive export name all use the corrected labels. A source
+with no detected speech gets an explicit marker; an entirely silent batch produces no WAV or
 provider job. If Soniox returns text without usable timestamps, grouping fails
 visibly rather than assigning text to an invented source section.
 
@@ -45,8 +55,13 @@ Recording and its existing email/Devices commands continue independently.
 
 A private `wcsr` RIFF chunk stores a versioned map with source names, dates and
 minutes, plus sample ranges identifying which source each retained part belongs
-to. Players can ignore it. Reimport validates the metadata and strips it before
-provider upload. A later manual VAD pass composes its new cuts through those
+to. Version 2 stores corrected Norway labels. Version 1 WAVs from the preceding
+patch stored raw recorder labels; they are validated against the original names
+and normalized to version 2 on import. Dates are always derived from the original
+filenames, so further reimport/VAD never subtracts the hour twice. Imported
+secondary audio also receives its corrected generated filename for further
+processing/downloads. Players can ignore the private chunk. Reimport validates
+the metadata and strips it before provider upload. A later manual VAD pass composes its new cuts through those
 ranges, so section headings survive additional trimming and VAD-only downloads.
 It does not invent wall-clock timestamps inside voice-activated clips, which
 may already have discarded intervals. Legacy app WAV/FLAC clock maps continue

@@ -524,7 +524,7 @@ test('Secondary rec confirms, downloads one correctly named WAV and transcribes 
   const h=harness();await h.mail.onCommand('start');h.el('speakers').checked=false;
   h.el('secondaryFiles').files=secondarySources();h.el('secondaryFiles').listeners.get('change')();
   for(let i=0;i<100&&!h.transcriptions.length;i++)await tick();
-  assert.equal(h.downloads.length,1);assert.match(h.downloads[0].name,/^secondary rec - 2026-10-25_15-09-00_to_17-19-00_\(0m2s\)\.wav$/);
+  assert.equal(h.downloads.length,1);assert.match(h.downloads[0].name,/^secondary rec - 2026-10-25_14-09-00_to_16-19-00_\(0m2s\)\.wav$/);
   assert.equal(h.transcriptions[0][0],h.downloads[0].blob);assert.equal(h.transcriptions[0][2],true);assert.equal(h.transcriptions[0][4].manualVAD,false);
   assert.equal(h.el('speakers').checked,true);assert.equal(h.recorder.state,'recording');assert.equal(h.uploads.length,0);
 });

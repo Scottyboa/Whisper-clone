@@ -46,7 +46,7 @@ test('Chrome Secondary rec runs real Silero once per batch, downloads playable m
             if(String(url).endsWith('/files')&&options.method==='POST'){window.testPayloads.push(options.body.get('file'));result={id:'file'}}
             else if(String(url).endsWith('/transcriptions')&&options.method==='POST'){window.testJobs.push(JSON.parse(options.body));result={id:'job'}}
             else if(String(url).endsWith('/transcript')){
-              const {readSecondary}=await import('./js/secondary-sections.mjs?v=20261025-secondary1');
+              const {readSecondary}=await import('./js/secondary-sections.mjs?v=20261025-secondary2');
               const saved=await readSecondary(window.testDownloads[0]);
               result={tokens:[{text:'First clip speech',speaker:1,start_ms:0},{text:'Last clip speech',speaker:2,start_ms:saved.secondary.ranges[1][0]/16}]};
             }else if(options.method==='DELETE')window.testDeletes.push(String(url));
@@ -66,7 +66,7 @@ test('Chrome Secondary rec runs real Silero once per batch, downloads playable m
     await cdp('Browser.setDownloadBehavior',{behavior:'allow',downloadPath:downloads});
     const {targetId}=await cdp('Target.createTarget',{url:`http://127.0.0.1:${server.address().port}/`});
     const {sessionId}=await cdp('Target.attachToTarget',{targetId,flatten:true});
-    await cdp('Emulation.setTimezoneOverride',{timezoneId:'Europe/Oslo'},sessionId);
+    await cdp('Emulation.setTimezoneOverride',{timezoneId:'Asia/Tokyo'},sessionId);
     const evaluate=async expression=>{const result=await cdp('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true},sessionId);assert.equal(result.exceptionDetails,undefined,JSON.stringify(result.exceptionDetails));return result.result.value;};
     for(let i=0;i<100&&!await evaluate("typeof window.testCommand==='function'");i++)await delay(30);
     assert.equal(await evaluate("typeof window.testCommand==='function'"),true);
@@ -80,13 +80,13 @@ test('Chrome Secondary rec runs real Silero once per batch, downloads playable m
     for(let i=0;i<600&&!await evaluate("document.getElementById('transcript').value.includes('Last clip speech')&&!document.getElementById('secondaryRec').disabled");i++)await delay(40);
     const state=await evaluate(`({text:document.getElementById('transcript').value,status:document.getElementById('message').textContent,downloads:window.testDownloads.length,uploads:window.testPayloads.length,jobs:window.testJobs,speakers:document.getElementById('speakers').checked,deletes:window.testDeletes.length,drive:window.testDriveUploads.length,confirmation:window.testConfirms[0]})`);
     assert.equal(state.uploads,1,state.status);assert.equal(state.downloads,1);assert.equal(state.jobs.length,1);assert.equal(state.jobs[0].enable_speaker_diarization,true);assert.equal(state.speakers,true);assert.equal(state.deletes,2);assert.equal(state.drive,0);
-    assert.match(state.text,/^secondary rec - 2026-10-25_15-09-00-000_to_2026-10-25_17-19-00-000_VAD-/);
-    assert.match(state.text,/15:09[^]*Speaker 1: First clip speech[^]*15:11[^]*\[No speech detected\.\][^]*17:19[^]*Speaker 2: Last clip speech/);
-    assert.match(state.confirmation,/Merge 3 secondary WAV files/);assert.equal(modelLoads,1,'one model load must serve the whole batch');
+    assert.match(state.text,/^secondary rec - 2026-10-25_14-09-00-000_to_2026-10-25_16-19-00-000_VAD-/);
+    assert.match(state.text,/14:09[^]*Speaker 1: First clip speech[^]*14:11[^]*\[No speech detected\.\][^]*16:19[^]*Speaker 2: Last clip speech/);
+    assert.match(state.confirmation,/Merge 3 secondary WAV files from 2026-10-25 14:09 to 2026-10-25 16:19/);assert.equal(modelLoads,1,'one model load must serve the whole batch');
     for(let i=0;i<100&&!(await readdir(downloads)).some(name=>name.endsWith('.wav'));i++)await delay(30);
-    const files=(await readdir(downloads)).filter(name=>name.endsWith('.wav'));assert.equal(files.length,1);assert.match(files[0],/^secondary rec - 2026-10-25_15-09-00_to_17-19-00_/);
+    const files=(await readdir(downloads)).filter(name=>name.endsWith('.wav'));assert.equal(files.length,1);assert.match(files[0],/^secondary rec - 2026-10-25_14-09-00_to_16-19-00_/);
     const check=await evaluate(`(async()=>{
-      const {prepareAudio}=await import('./js/audio-import.mjs?v=20261025-secondary1');
+      const {prepareAudio}=await import('./js/audio-import.mjs?v=20261025-secondary2');
       const parsed=await prepareAudio(window.testDownloads[0]);
       const a=new Uint8Array(await parsed.file.arrayBuffer()),b=new Uint8Array(await window.testPayloads[0].arrayBuffer());
       const context=new OfflineAudioContext(1,1,16000),decoded=await context.decodeAudioData(await window.testDownloads[0].arrayBuffer());
@@ -97,11 +97,11 @@ test('Chrome Secondary rec runs real Silero once per batch, downloads playable m
     assert.equal(await evaluate('window.testPayloads.length'),1);assert.equal(modelLoads,1);
     // Reimport plus another real Silero pass preserves the source sections.
     const reimport=await evaluate(`(async()=>{
-      const {prepareManualAudio}=await import('./js/manual-vad.mjs?v=20261025-secondary1');
+      const {prepareManualAudio}=await import('./js/manual-vad.mjs?v=20261025-secondary2');
       const result=await prepareManualAudio(window.testDownloads[0]);
       return {sources:result.secondary.sources.map(s=>s.time),ranges:result.secondary.ranges.length,bytes:result.file.size};
     })()`);
-    assert.deepEqual(reimport.sources,['15:09','15:11','17:19']);assert.equal(reimport.ranges,2);assert.ok(reimport.bytes>44);
+    assert.deepEqual(reimport.sources,['14:09','14:11','16:19']);assert.equal(reimport.ranges,2);assert.ok(reimport.bytes>44);
   }finally{
     await cdp('Browser.close').catch(()=>{});browser.kill();await new Promise(resolve=>server.close(resolve));
     await rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100});

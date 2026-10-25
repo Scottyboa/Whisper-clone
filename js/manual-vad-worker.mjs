@@ -1,6 +1,6 @@
 import { VAD_RULES } from './audio.mjs?v=20261015-clock1';
 import { decodeFileChunks, decodedChunks } from './file-audio.mjs?v=20261023-upload1';
-import { trimDecodedAudio } from './file-vad.mjs?v=20261025-secondary1';
+import { trimDecodedAudio } from './file-vad.mjs?v=20261025-secondary2';
 
 let nativeResolve, nativeReject, modelPromise;
 async function getModel() {

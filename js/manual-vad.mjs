@@ -1,4 +1,4 @@
-import { prepareAudio } from './audio-import.mjs?v=20261025-secondary1';
+import { prepareAudio } from './audio-import.mjs?v=20261025-secondary2';
 
 const active = new Map();
 async function decodeNative(file) {
@@ -14,7 +14,7 @@ async function decodeNative(file) {
 
 function createVADRunner() {
   if (typeof Worker === 'undefined') throw new Error('Audio preparation requires a browser with Web Worker support.');
-  const worker = new Worker(new URL('./manual-vad-worker.mjs?v=20261025-secondary1', import.meta.url), {type:'module'});
+  const worker = new Worker(new URL('./manual-vad-worker.mjs?v=20261025-secondary2', import.meta.url), {type:'module'});
   let pending = null, closed = false;
   const finish = (error, result) => {
     const job = pending; pending = null;

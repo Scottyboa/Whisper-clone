@@ -1,6 +1,6 @@
-import { createManualVADSession } from './manual-vad.mjs?v=20261025-secondary1';
+import { createManualVADSession } from './manual-vad.mjs?v=20261025-secondary2';
 import { wavBlob } from './audio.mjs?v=20261015-clock1';
-import { sortSecondaryFiles, validateSecondary, secondaryNames, attachSecondary } from './secondary-sections.mjs?v=20261025-secondary1';
+import { sortSecondaryFiles, validateSecondary, secondaryNames, attachSecondary } from './secondary-sections.mjs?v=20261025-secondary2';
 
 export async function mergeSecondaryRecordings(files, onStatus = () => {}, createSession = createManualVADSession) {
   const items = sortSecondaryFiles(files), parts = [], ranges = [];
@@ -23,7 +23,7 @@ export async function mergeSecondaryRecordings(files, onStatus = () => {}, creat
       parts.push(result.file.slice(44));
     }
     if (!samples) return {empty:true};
-    const secondary = validateSecondary({version:1,sampleRate:16000,sources:items.map(item => item.source),ranges}, samples);
+    const secondary = validateSecondary({version:2,sampleRate:16000,sources:items.map(item => item.source),ranges}, samples);
     const names = secondaryNames(secondary);
     const header = new Uint8Array(await wavBlob([]).arrayBuffer()), view = new DataView(header.buffer);
     view.setUint32(4, 36 + samples * 2, true); view.setUint32(40, samples * 2, true);

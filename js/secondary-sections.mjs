@@ -2,7 +2,11 @@ import { duration } from './audio.mjs?v=20261015-clock1';
 
 const CHUNK = 'wcsr', MAX_BYTES = 2 * 1024 * 1024;
 export const MAX_SECONDARY_FILES = 1000;
-export function secondarySource(name) {
+const osloClock = new Intl.DateTimeFormat('en-GB', {timeZone:'Europe/Oslo',
+  year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hourCycle:'h23'});
+// This recorder stays on Norway's summer clock (UTC+02:00) all year.
+// Derive the real instant from that fixed clock, then display Norway local time.
+function recorderSource(name) {
   const match = /^R-(\d{1,12})_(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})_SVOS\.wav$/i.exec(name || '');
   if (!match) throw new Error(`Unsupported secondary filename: ${name}. Expected R-00001_YYMMDDHHmm_SVOS.WAV.`);
   const [, sequence, yy, mm, dd, hh, min] = match;
@@ -10,27 +14,38 @@ export function secondarySource(name) {
   const date = new Date(Date.UTC(year, month - 1, day));
   if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day || Number(hh) > 23 || Number(min) > 59)
     throw new Error(`Invalid date or time in secondary filename: ${name}.`);
-  return { name, date: `${year}-${mm}-${dd}`, time: `${hh}:${min}`, sequence: Number(sequence) };
+  return { name, date: `${year}-${mm}-${dd}`, time: `${hh}:${min}`, sequence: Number(sequence),
+    at:Date.UTC(year, month - 1, day, Number(hh), Number(min)) - 120 * 60000 };
+}
+function norwaySource(raw) {
+  const parts = Object.fromEntries(osloClock.formatToParts(raw.at).map(part => [part.type, part.value]));
+  return {name:raw.name, date:`${parts.year}-${parts.month}-${parts.day}`, time:`${parts.hour}:${parts.minute}`, sequence:raw.sequence};
+}
+export function secondarySource(name) {
+  return norwaySource(recorderSource(name));
 }
 export function sortSecondaryFiles(files) {
   if (!files?.length || files.length > MAX_SECONDARY_FILES) throw new Error(`Choose between 1 and ${MAX_SECONDARY_FILES} secondary WAV files.`);
   const seen = new Set();
   return Array.from(files, file => {
-    const source = secondarySource(file.name), key = file.name.toLowerCase();
+    const raw = recorderSource(file.name), source = norwaySource(raw), key = file.name.toLowerCase();
     if (seen.has(key)) throw new Error(`Duplicate secondary file: ${file.name}.`);
-    seen.add(key); return { file, source };
-  }).sort((a, b) => `${a.source.date} ${a.source.time}`.localeCompare(`${b.source.date} ${b.source.time}`) ||
-    a.source.sequence - b.source.sequence || a.source.name.localeCompare(b.source.name));
+    seen.add(key); return { file, source, at:raw.at };
+  }).sort((a, b) => a.at - b.at || a.source.sequence - b.source.sequence || a.source.name.localeCompare(b.source.name))
+    .map(({file, source}) => ({file, source}));
 }
 
 export function validateSecondary(value, samples) {
-  if (value?.version !== 1 || value.sampleRate !== 16000 || !Number.isSafeInteger(samples) || samples <= 0 ||
+  if (![1, 2].includes(value?.version) || value.sampleRate !== 16000 || !Number.isSafeInteger(samples) || samples <= 0 ||
       !Array.isArray(value.sources) || !value.sources.length || value.sources.length > MAX_SECONDARY_FILES ||
       !Array.isArray(value.ranges) || !value.ranges.length || value.ranges.length > 50000) throw new Error('Invalid secondary recording metadata.');
   const sources = value.sources.map(source => {
-    const parsed = secondarySource(source?.name);
-    if (parsed.date !== source.date || parsed.time !== source.time) throw new Error('Secondary recording dates do not match their filenames.');
-    return parsed;
+    const raw = recorderSource(source?.name), corrected = norwaySource(raw);
+    // Version 1 stored the uncorrected filename clock. Normalize it once on
+    // read; version 2 already stores Norway local labels. Never shift twice.
+    const expected = value.version === 1 ? raw : corrected;
+    if (expected.date !== source.date || expected.time !== source.time) throw new Error('Secondary recording dates do not match their filenames.');
+    return corrected;
   });
   const sorted = sortSecondaryFiles(sources.map(source => ({name:source.name})));
   if (sorted.some((item, index) => item.source.name !== sources[index].name)) throw new Error('Secondary recordings are out of order.');
@@ -43,7 +58,7 @@ export function validateSecondary(value, samples) {
     offset += length; previous = source; return [start, length, source];
   });
   if (offset !== samples) throw new Error('Secondary recording boundaries do not match the audio.');
-  return { version:1, sampleRate:16000, sources, ranges };
+  return { version:2, sampleRate:16000, sources, ranges };
 }
 export function secondaryNames(map) {
   const first = map.sources[0], last = map.sources.at(-1);
@@ -119,7 +134,7 @@ export async function readSecondary(file) {
   catch { throw new Error('Invalid secondary recording metadata.'); }
   const payload = new Blob(keep);
   new DataView(head.buffer).setUint32(4, payload.size + 4, true);
-  return {file:new File([head, payload], file.name, {type:'audio/wav'}), secondary:map};
+  return {file:new File([head, payload], secondaryNames(map).wav, {type:'audio/wav'}), secondary:map};
 }
 
 export function renderSecondary(result, map, renderSpeakers) {
