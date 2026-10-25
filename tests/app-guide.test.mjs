@@ -57,6 +57,10 @@ test('the real page has a labelled guide at the top and covers all existing cont
   assert.match(html,/<input id="secondaryFiles"[^>]*multiple/);
   const guide=html.slice(html.indexOf('<dialog id="guideDialog"'),html.indexOf('<dialog id="driveImportDialog"'));
   for(const text of ['Start','Pause / Resume','Stop','Abort','Keep awake','History','VAD processing','Secondary rec','stop and transcribe','abort recording','Link','Unlink','start','pause','resume','stop','Enable audio here','Disconnect','Refresh','Upload File','Transcribe','Speaker labels','Import Key','Clear','EX.Drive','Imp. Drive','Clear Drive','COMPLETE.txt','Privacy view'])assert.ok(guide.includes(text),text);
+  assert.match(html,/<dialog id="secondaryDialog"[^>]*aria-labelledby="secondaryTitle"/);
+  assert.match(html,/<input id="secondaryTranscribeOnly" type="checkbox"/);
+  assert.match(html,/<input id="secondaryWithDownload" type="checkbox" checked/);
+  assert.ok(guide.includes('VAD Silero + transcribe'));assert.ok(guide.includes('VAD Silero + WAV download + transcribe'));
   const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(match=>match[1]);
   assert.equal(new Set(ids).size,ids.length);
 });

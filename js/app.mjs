@@ -8,6 +8,7 @@ import { loadGoogle, importSonioxKey } from './drive.mjs';
 import { transcribeFile } from './soniox.mjs?v=20261025-secondary3';
 import { mergeSecondaryRecordings } from './secondary-recordings.mjs?v=20261025-secondary3';
 import { sortSecondaryFiles } from './secondary-sections.mjs?v=20261025-secondary3';
+import { createSecondaryPrompt } from './secondary-prompt.mjs?v=20261025-secondary-options1';
 import { prepareManualAudio, cancelManualVAD } from './manual-vad.mjs?v=20261025-secondary3';
 import { vadDownloadFile } from './vad-download.mjs?v=20261025-secondary3';
 import { cancelFlacTasks } from './flac-tasks.mjs?v=20261017-flac2';
@@ -50,6 +51,9 @@ function bootstrap() {
   const driveImportPrompt = createDriveImportPrompt({dialog:$('driveImportDialog'),paste:$('driveImportPaste'),zip:$('driveImportZip'),apply:$('driveImportApply'),close:$('driveImportClose'),
     title:$('driveImportTitle'),importOptions:$('driveImportOutputs'),help:$('driveImportHelp'),
     folders:[{name:'Transcripts',input:$('driveFolderOriginal')},{name:'translations',input:$('driveFolderTranslations')},{name:'temp',input:$('driveFolderTemp')}]});
+  const secondaryPrompt = createSecondaryPrompt({dialog:$('secondaryDialog'),summary:$('secondarySummary'),
+    transcribe:$('secondaryTranscribeOnly'),download:$('secondaryWithDownload'),apply:$('secondaryApply'),
+    cancel:$('secondaryCancel'),close:$('secondaryClose')});
   const confirmAbort = createAbortPrompt({dialog:$('abortDialog'),text:$('abortQuestion'),yes:$('abortYes'),no:$('abortNo')});
   let deviceName = 'This computer';
   try { deviceName = localStorage.getItem('whisper-clone.device-name') || deviceName; } catch {}
@@ -348,34 +352,38 @@ function bootstrap() {
     if (!apiKey) { message('Import a Soniox key before using Secondary rec.', true); return; }
     $('secondaryFiles').value = ''; $('secondaryFiles').click();
   });
-  $('secondaryFiles').addEventListener('change', () => {
+  $('secondaryFiles').addEventListener('change', async () => {
     const selected = Array.from($('secondaryFiles').files || []);
     if (!selected.length || transcribing || vadProcessing) return;
     if (!apiKey) { message('Import a Soniox key before using Secondary rec.', true); return; }
     try {
       const sorted = sortSecondaryFiles(selected), first = sorted[0].source, last = sorted.at(-1).source;
-      if (!confirm(`Merge ${selected.length} secondary WAV file${selected.length === 1 ? '' : 's'} from ${first.date} ${first.time} to ${last.date} ${last.time}, remove silence with Silero VAD, download one WAV, and transcribe it with Soniox speaker labels?\n\nSVOS and REC filename dates and times are used exactly as written, with minute precision and no timezone or daylight-saving adjustment. Results will be divided by original file. Use EX.Drive to save the finished transcript.`)) return;
+      const options = await secondaryPrompt(`Merge ${selected.length} secondary WAV file${selected.length === 1 ? '' : 's'} from ${first.date} ${first.time} to ${last.date} ${last.time}.`);
+      if (!options || pageClosing) return;
+      if (!apiKey) { message('Import a Soniox key before using Secondary rec.', true); return; }
       $('speakers').checked = true; $('secondaryStatus').textContent = ''; $('secondaryStatus').classList.remove('error');
-      queueTranscription(null, apiKey, true, null, sorted.map(item => item.file)).catch(() => {});
+      queueTranscription(null, apiKey, true, null, {files:sorted.map(item => item.file),download:options.download}).catch(() => {});
     } catch (error) { message(error.message || 'Secondary files could not be selected.', true); }
   });
-  function queueTranscription(source, key, speakers, automatic = null, secondaryFiles = null) {
+  function queueTranscription(source, key, speakers, automatic = null, secondary = null) {
     transcriptionPending++; transcribing = true; updateKey();
     const job = transcriptionQueue.then(async () => {
       let cleanupFailed = false, outputFilename = null;
       try {
-        if (secondaryFiles) {
-          const merged = await mergeSecondaryRecordings(secondaryFiles, status => message(status));
+        if (secondary) {
+          const merged = await mergeSecondaryRecordings(secondary.files, status => message(status));
           if (pageClosing) return;
           if (merged.empty) throw new Error('No speech detected in the selected secondary recordings. No file downloaded or sent to Soniox.');
           source = merged.file;
-          try {
-            download(source, source.name);
-            $('secondaryStatus').textContent = `Merged WAV download requested: ${source.name}`;
-          } catch (error) {
-            $('secondaryStatus').classList.add('error');
-            $('secondaryStatus').textContent = `Merged WAV download failed; transcription will continue. ${error.message || ''}`;
-          }
+          if (secondary.download) {
+            try {
+              download(source, source.name);
+              $('secondaryStatus').textContent = `Merged WAV download requested: ${source.name}`;
+            } catch (error) {
+              $('secondaryStatus').classList.add('error');
+              $('secondaryStatus').textContent = `Merged WAV download failed; transcription will continue. ${error.message || ''}`;
+            }
+          } else $('secondaryStatus').textContent = 'VAD processing complete · no WAV download requested.';
         }
         if (pageClosing) return;
         // Keep the merged WAV and its source map available for a manual retry.
@@ -387,7 +395,7 @@ function bootstrap() {
           }
           if (error) cleanupFailed = true;
           message(status, error);
-        }, { manualVAD: !automatic && !secondaryFiles });
+        }, { manualVAD: !automatic && !secondary });
         $('transcript').value = text; transcriptFilename = outputFilename; updateDrive();
         if (automatic) {
           await queueDrive(async () => {
@@ -425,7 +433,7 @@ function bootstrap() {
     if (recorder.state !== 'idle' || transcribing || driveBusy || audioDownloadsPending || vadProcessing) { event.preventDefault(); event.returnValue = ''; }
   });
   window.addEventListener('pagehide', () => {
-    pageClosing = true;
+    pageClosing = true; secondaryPrompt.cancel();
     devices.disconnect(); panel.dispose(); mail.unlink(); recorder.dispose(); cancelFlacTasks(); cancelManualVAD(); wakeGeneration++;
     wakeLock?.release().catch(() => {}); file = null;
   });

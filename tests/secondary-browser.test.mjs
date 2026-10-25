@@ -13,7 +13,7 @@ const canSpeak=spawnSync('ffmpeg',['-hide_banner','-filters'],{encoding:'utf8'})
 const root=fileURLToPath(new URL('../',import.meta.url));
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
-test('Chrome Secondary rec runs real Silero once per batch, downloads playable merged WAV and sends one sectioned speaker job',
+test('Chrome Secondary rec runs real Silero once per batch, supports both output modes with real Silero and one sectioned speaker job per batch',
   {skip:!executable||!canSpeak,timeout:60000},async()=>{
   const directory=await mkdtemp(join(tmpdir(),'whisper-secondary-')),downloads=join(directory,'downloads');await mkdir(downloads);
   const make=args=>{const result=spawnSync('ffmpeg',['-v','error','-y',...args]);assert.equal(result.status,0,result.stderr.toString());};
@@ -36,8 +36,7 @@ test('Chrome Secondary rec runs real Silero once per batch, downloads playable m
       else if(path==='/'){
         const setup=`<script>
           sessionStorage.setItem('whisper-clone.soniox-key','fixture-only');
-          window.testPayloads=[];window.testJobs=[];window.testDownloads=[];window.testDriveUploads=[];window.testDeletes=[];window.testConfirms=[];window.allowConfirm=true;
-          window.confirm=text=>{window.testConfirms.push(text);return window.allowConfirm};
+          window.testPayloads=[];window.testJobs=[];window.testDownloads=[];window.testDriveUploads=[];window.testDeletes=[];
           const nativeURL=URL.createObjectURL.bind(URL);URL.createObjectURL=blob=>{window.testDownloads.push(blob);return nativeURL(blob)};
           const nativeFetch=fetch.bind(window);
           window.fetch=async(url,options={})=>{
@@ -77,8 +76,11 @@ test('Chrome Secondary rec runs real Silero once per batch, downloads playable m
         transfer.items.add(new File([await(await fetch('/'+path)).blob()],name,{type:'audio/wav'}));
       const input=document.getElementById('secondaryFiles');input.files=transfer.files;input.dispatchEvent(new Event('change'));
     })()`);
+    const prompt=await evaluate(`({open:document.getElementById('secondaryDialog').open,only:document.getElementById('secondaryTranscribeOnly').checked,download:document.getElementById('secondaryWithDownload').checked})`);
+    assert.deepEqual(prompt,{open:true,only:false,download:true});assert.equal(modelLoads,0);
+    await evaluate("document.getElementById('secondaryApply').click()");
     for(let i=0;i<600&&!await evaluate("document.getElementById('transcript').value.includes('Last clip speech')&&!document.getElementById('secondaryRec').disabled");i++)await delay(40);
-    const state=await evaluate(`({text:document.getElementById('transcript').value,status:document.getElementById('message').textContent,downloads:window.testDownloads.length,uploads:window.testPayloads.length,jobs:window.testJobs,speakers:document.getElementById('speakers').checked,deletes:window.testDeletes.length,drive:window.testDriveUploads.length,confirmation:window.testConfirms[0]})`);
+    const state=await evaluate(`({text:document.getElementById('transcript').value,status:document.getElementById('message').textContent,downloads:window.testDownloads.length,uploads:window.testPayloads.length,jobs:window.testJobs,speakers:document.getElementById('speakers').checked,deletes:window.testDeletes.length,drive:window.testDriveUploads.length,confirmation:document.getElementById('secondarySummary').textContent})`);
     assert.equal(state.uploads,1,state.status);assert.equal(state.downloads,1);assert.equal(state.jobs.length,1);assert.equal(state.jobs[0].enable_speaker_diarization,true);assert.equal(state.speakers,true);assert.equal(state.deletes,2);assert.equal(state.drive,0);
     assert.match(state.text,/^secondary rec - 2026-10-25_15-09-00-000_to_2026-10-25_20-19-00-000_VAD-/);
     assert.match(state.text,/15:09[^]*Speaker 1: First clip speech[^]*15:11[^]*\[No speech detected\.\][^]*20:19[^]*Speaker 2: Last clip speech/);
@@ -93,8 +95,18 @@ test('Chrome Secondary rec runs real Silero once per batch, downloads playable m
       return {same:a.length===b.length&&a.every((v,i)=>v===b[i]),duration:decoded.duration,ranges:parsed.secondary.ranges.length,channels:decoded.numberOfChannels};
     })()`);
     assert.equal(check.same,true);assert.equal(check.ranges,2);assert.equal(check.channels,1);assert.ok(check.duration>5&&check.duration<20);
-    await evaluate("window.allowConfirm=false;document.getElementById('secondaryFiles').dispatchEvent(new Event('change'))");
+    await evaluate("document.getElementById('secondaryFiles').dispatchEvent(new Event('change'));document.getElementById('secondaryClose').click()");
     assert.equal(await evaluate('window.testPayloads.length'),1);assert.equal(modelLoads,1);
+    // The other mode must use the same real VAD/STT pipeline, without another
+    // Blob URL or browser download, and no duplicate provider job.
+    await evaluate("document.getElementById('secondaryFiles').dispatchEvent(new Event('change'));document.getElementById('secondaryTranscribeOnly').click()");
+    assert.deepEqual(await evaluate(`({only:document.getElementById('secondaryTranscribeOnly').checked,download:document.getElementById('secondaryWithDownload').checked})`),{only:true,download:false});
+    await evaluate("document.getElementById('secondaryApply').click()");
+    for(let i=0;i<600&&!await evaluate("window.testPayloads.length===2&&!document.getElementById('secondaryRec').disabled");i++)await delay(40);
+    const second=await evaluate(`({uploads:window.testPayloads.length,jobs:window.testJobs.length,downloads:window.testDownloads.length,drive:window.testDriveUploads.length,deletes:window.testDeletes.length,text:document.getElementById('transcript').value})`);
+    assert.equal(second.uploads,2);assert.equal(second.jobs,2);assert.equal(second.downloads,1);assert.equal(second.drive,0);assert.equal(second.deletes,4);
+    assert.match(second.text,/15:09[^]*First clip speech[^]*20:19[^]*Last clip speech/);assert.equal(modelLoads,2);
+    assert.equal((await readdir(downloads)).filter(name=>name.endsWith('.wav')).length,1);
     // Reimport plus another real Silero pass preserves the source sections.
     const reimport=await evaluate(`(async()=>{
       const {prepareManualAudio}=await import('./js/manual-vad.mjs?v=20261025-secondary3');

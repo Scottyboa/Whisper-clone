@@ -2,7 +2,7 @@
 
 Use Secondary rec after importing a Soniox key. Select up to 1,000 WAVs named
 like `R-00058_2610251719_SVOS.WAV` or `R-00059_2610252019_REC.WAV`, then
-confirm merge, download and transcription. Both endings can be mixed in the
+choose an output mode and confirm. Both endings can be mixed in the
 same selection, and filename matching is case-insensitive.
 
 The name encodes YY MM DD HH mm. Dates and times are used exactly as written
@@ -12,6 +12,19 @@ and minute are validated; unknown names and duplicate filenames fail before
 processing. Files sort by filename date and time, then recorder sequence number
 for tied minutes. File modification timestamps are never used. Filename years
 are interpreted as 2000–2099.
+
+The options prompt offers two mutually exclusive checkboxes:
+
+- VAD Silero + transcribe: merge and transcribe without a WAV download.
+- VAD Silero + WAV download + transcribe: the same processing plus a merged WAV
+  download. This option is checked each time the prompt opens.
+
+Selecting one clears the other, and the audio is processed/transcribed once.
+With neither selected, the action button becomes Exit. Cancel, the red close
+button and Escape also dismiss the prompt without processing. Both modes keep
+speaker labels, filename-based dates, original-file sections, metadata and the
+same transcript title/export name. The merged audio stays selected in memory
+for a manual retry in either mode; there is no automatic Drive upload.
 
 Each source receives the same pinned Silero VAD as manual transcription. One
 worker/model is reused for the batch, with its frame and model state reset
