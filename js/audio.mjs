@@ -5,8 +5,8 @@ export const SAMPLE_RATE = 16000;
 export const VAD_RULES = Object.freeze({
   model: 'legacy', frameSamples: 1536,
   submitUserSpeechOnPause: true,
-  positiveSpeechThreshold: 0.4,
-  negativeSpeechThreshold: 0.35,
+  positiveSpeechThreshold: 0.3,
+  negativeSpeechThreshold: 0.25,
   redemptionFrames: 5,
   preSpeechPadFrames: 2,
   minSpeechFrames: 3,
