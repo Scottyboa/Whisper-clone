@@ -2,11 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DevicesPanel, createAbortPrompt } from '../js/devices-panel.mjs';
+import { RECENT_MS, PRESENCE_TTL } from '../js/device-control.mjs';
 function element(){return {
-  textContent:'',value:'',disabled:false,hidden:false,open:false,children:[],listeners:{},attributes:{},classList:{add(){},remove(){}},
+  textContent:'',value:'',disabled:false,hidden:false,open:false,children:[],listeners:{},attributes:{},classList:{add(){},remove(){},toggle(){}},
   addEventListener(type,fn){(this.listeners[type]||=[]).push(fn);},
   async fire(type,event={}){for(const fn of this.listeners[type]||[])await fn(event);},
-  append(...nodes){this.children.push(...nodes);},replaceChildren(){this.children=[];},setAttribute(key,value){this.attributes[key]=value;},
+  append(...nodes){for(const node of nodes){node.parent=this;this.children.push(node);}},
+  remove(){if(this.parent)this.parent.children=this.parent.children.filter(node=>node!==this);this.parent=null;},
+  replaceChildren(){this.children=[];},setAttribute(key,value){this.attributes[key]=value;},
   showModal(){this.open=true;},close(){this.open=false;this.fire('close');},focus(){this.focused=true;},
 };}
 function setup({confirmAbort=async()=>true}={}){
@@ -36,7 +39,7 @@ test('selecting a row enables appropriate controls and only sends to that select
     const homeButton=h.$('deviceRows').children[1].children[0].children[0];await homeButton.fire('click');
     assert.equal(h.$('device-stop').disabled,false);assert.equal(h.$('device-start').disabled,true);
     await h.$('device-stop').fire('click');assert.deepEqual(h.sent,[{target:h.devices.rows[1].sessionId,action:'stop'}]);assert.equal(h.devices.active,true);
-    h.devices.rows[1].at=-100000;h.panel.render();assert.equal(h.$('device-abort').disabled,true);
+    h.devices.rows[1].at=-PRESENCE_TTL;h.panel.render();assert.equal(h.$('device-abort').disabled,true);
   }finally{h.restore();}
 });
 
@@ -58,16 +61,40 @@ test('Devices shows local and remote sound clocks, elapsed age, no-sound and uns
   }finally{h.restore();}
 });
 
-test('an expired selected tab disappears at ten seconds and loses its command controls',async()=>{
+test('delayed tabs remain selectable for two minutes and expired tabs lose their command controls',async()=>{
   const h=setup();try{
     const home=h.devices.rows[1],seen=home.at;h.panel.selected=home.sessionId;
-    h.panel.now=()=>seen+9999;h.panel.render();
+    h.panel.now=()=>seen+RECENT_MS;h.panel.render();
     assert.equal(h.$('deviceRows').children.length,2);assert.equal(h.$('device-stop').disabled,false);
-    h.panel.now=()=>seen+10000;h.panel.render();
+    assert.match(h.$('deviceRows').children[1].children[1].textContent,/Updates delayed · Last reported: Recording/);
+    assert.equal(h.panel.selected,home.sessionId);
+    await h.panel.command('stop');assert.equal(h.sent[0].target,home.sessionId);
+    h.panel.now=()=>seen+PRESENCE_TTL-1;h.panel.render();
+    assert.equal(h.$('deviceRows').children.length,2);assert.equal(h.$('device-stop').disabled,false);
+    h.panel.now=()=>seen+PRESENCE_TTL;h.panel.render();
     assert.equal(h.$('deviceRows').children.length,0);assert.equal(h.panel.selected,null);
     assert.equal(h.$('devicesEmpty').hidden,false);assert.equal(h.$('device-stop').disabled,true);
     assert.equal(h.devices.active,true);assert.equal(h.$('devicesDisconnect').disabled,false);
     home.at=h.panel.now();h.panel.render();assert.equal(h.$('deviceRows').children.length,1);
+  }finally{h.restore();}
+});
+
+test('timer and status renders preserve row buttons, focus and selection across delayed updates',async()=>{
+  const h=setup();try{
+    const home=h.devices.rows[1],seen=home.at,tr=h.$('deviceRows').children[1],button=tr.children[0].children[0];
+    button.focus();await button.fire('click');
+    for(const age of [2000,10000,RECENT_MS,60000]){
+      h.panel.now=()=>seen+age;h.panel.render();
+      assert.equal(h.$('deviceRows').children[1],tr);assert.equal(tr.children[0].children[0],button);
+      assert.equal(button.focused,true);assert.equal(button.attributes['aria-pressed'],'true');
+      assert.equal(h.panel.selected,home.sessionId);
+    }
+    // A heartbeat clears the delayed label without replacing any clickable nodes.
+    home.at=h.panel.now();home.state='paused';h.panel.render();
+    assert.equal(tr.children[1].textContent,'Paused');assert.equal(h.$('device-resume').disabled,false);
+    assert.equal(tr.children[0].children[0],button);
+    await button.fire('click');await h.$('device-resume').fire('click');
+    assert.deepEqual(h.sent,[{target:home.sessionId,action:'resume'}]);
   }finally{h.restore();}
 });
 
@@ -95,3 +122,4 @@ test('confirmation resolves Yes, No, Escape and close without running a recordin
   const third=ask();await dialog.fire('cancel',{preventDefault(){}});assert.equal(await third,false);
   const fourth=ask();dialog.close();assert.equal(await fourth,false);
 });
+

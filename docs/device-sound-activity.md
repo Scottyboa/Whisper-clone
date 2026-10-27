@@ -2,8 +2,16 @@
 
 Each updated recording tab measures incoming sound before VAD and publishes only
 its most recent sound timestamp in its existing Devices heartbeat. The heartbeat
-still overwrites the same session file about every five seconds and expires after
-ten seconds without an update. This feature creates no additional Drive files and
+still overwrites the same session file about every five seconds, subject to Drive
+latency. After 30 seconds without an update, Devices marks the tab **Updates
+delayed** and labels its status as last reported. It remains listed and selectable
+for up to two minutes after its last heartbeat. Connected tabs delete session
+files after five minutes without an update, rechecking metadata and using an
+ETag condition so a renewed heartbeat survives cleanup. A transient missing
+listing or failed read preserves the last-known row until its heartbeat expires;
+cached observations never extend that time. Rows are updated in place to preserve
+selection and clicks. Commands to delayed tabs still require acknowledgement and
+expire after 60 seconds. This feature creates no additional Drive files and
 stores no audio samples or sound-level history.
 
 Devices shows the timestamp in the viewing computer's local time, with seconds
@@ -24,3 +32,4 @@ An optional `inputActivityVersion: 1` and `lastSoundAt` (Unix milliseconds or
 invalid timestamps show **Sound activity unavailable**. Save any active recording
 before refreshing that tab to load the update. Both recording and viewing tabs
 need the update to use the feature. The main recording UI is unchanged.
+

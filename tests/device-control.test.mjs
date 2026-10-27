@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DeviceControl, COMMAND_TTL, RECENT_MS } from '../js/device-control.mjs';
+import { DeviceControl, COMMAND_TTL, RECENT_MS, PRESENCE_TTL, SESSION_FILE_TTL } from '../js/device-control.mjs';
 import { TranscriptDrive } from '../js/transcript-drive.mjs';
 const json=(body,status=200,headers={})=>new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json',...headers}});
 const defer=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
@@ -149,21 +149,74 @@ test('heartbeats overwrite one file per session and automatically refresh other 
   assert.equal(file.version,13);assert.equal(a.device.active,true);assert.equal(b.device.active,true);
 });
 
-test('presence expires at ten seconds and Refresh deletes it; a returning tab can publish again',async()=>{
+test('presence survives delays for two minutes; cleanup waits five minutes and a returning tab can publish again',async()=>{
   const n=network(),a=n.make('Work'),b=n.make('Home');
   await a.device.connect();await b.device.connect();await a.device.refresh();
   b.state.state='recording';
   const name=`session-${b.device.id}.json`,old=[...n.files.values()].find(f=>f.name===name);
-  assert.equal(RECENT_MS,10000);
-  n.advance(9999);await a.device.refresh();
+  assert.equal(RECENT_MS,30000);assert.equal(PRESENCE_TTL,120000);assert.equal(SESSION_FILE_TTL,300000);
+  n.advance(PRESENCE_TTL-1);await a.device.refresh();
   assert.ok(a.device.rows.some(row=>row.sessionId===b.device.id));assert.ok(n.files.has(old.id));
   n.advance(1);await assert.rejects(a.device.send(b.device.id,'start'),/recently seen/);
   await a.device.refresh();
-  assert.equal(a.device.rows.length,1);assert.equal(a.device.rows[0].sessionId,a.device.id);assert.equal(n.files.has(old.id),false);
+  assert.equal(a.device.rows.length,1);assert.equal(a.device.rows[0].sessionId,a.device.id);assert.equal(n.files.has(old.id),true);
+  n.advance(SESSION_FILE_TTL-PRESENCE_TTL-1);await a.device.refresh();assert.equal(n.files.has(old.id),true);
+  n.advance(1);await a.device.refresh();assert.equal(n.files.has(old.id),false);
   assert.equal(b.device.active,true);assert.equal(b.state.state,'recording');assert.deepEqual(b.actions,[]);
   await b.device.runCycle();await a.device.runCycle();
   assert.equal(a.device.rows.find(row=>row.sessionId===b.device.id).state,'recording');
   assert.ok([...n.files.values()].some(f=>f.name===name));
+});
+
+test('a delayed target stays listed and can still acknowledge a command',async()=>{
+  const n=network(),a=n.make('Work'),b=n.make('Home');
+  await a.device.connect();await b.device.connect();await a.device.refresh();
+  n.advance(RECENT_MS+1000);await a.device.refresh();
+  assert.ok(a.device.rows.some(row=>row.sessionId===b.device.id));
+  const id=await a.device.send(b.device.id,'start');
+  await b.device.runCycle();await Promise.all([...b.device.inflight.values()]);await b.device.runCycle();await a.device.refresh();
+  assert.deepEqual(b.actions,['start']);assert.equal(a.device.pending.get(id).result.status,'completed');
+});
+
+test('missing listings and failed reads preserve last-known rows without extending heartbeat expiry',async()=>{
+  const n=network(),a=n.make('Work'),b=n.make('Home');
+  await a.device.connect();await b.device.connect();await a.device.refresh();
+  const file=[...n.files.values()].find(f=>f.name===`session-${b.device.id}.json`),seen=n.now();
+  const home=()=>a.device.rows.find(row=>row.sessionId===b.device.id);
+  n.advance(15000);
+  n.intercept(({method,path})=>method==='GET'&&path.endsWith('/control/children')?json({value:[]}):null);
+  await a.device.refresh();assert.equal(home().at,seen);
+  n.intercept(({method,path})=>method==='GET'&&path.endsWith(`/items/${file.id}`)?json({},500):null);
+  n.advance(15000);await a.device.refresh();assert.equal(home().at,seen);
+  n.advance(PRESENCE_TTL-(n.now()-seen)-1);await a.device.refresh();assert.equal(home().at,seen);
+  n.advance(1);await a.device.refresh();assert.equal(home(),undefined);assert.equal(n.files.has(file.id),true);
+});
+
+test('sequential Drive reads taking longer than the former timeout still list the remote tab',async()=>{
+  const n=network(),a=n.make('Work'),b=n.make('Home');await a.device.connect();await b.device.connect();
+  const file=[...n.files.values()].find(f=>f.name===`session-${b.device.id}.json`),seen=n.now();
+  n.intercept(({url,path,method})=>{
+    if(method==='GET'&&(path.endsWith(`/items/${file.id}`)||url.hostname==='download.example'))n.advance(12000);
+  });
+  await a.device.refresh();
+  const home=a.device.rows.find(row=>row.sessionId===b.device.id);
+  assert.equal(home.at,seen);assert.equal(n.now()-seen,24000);
+});
+
+test('an older overlapping refresh cannot replace a newer remote status',async()=>{
+  const n=network(),a=n.make('Work'),b=n.make('Home');
+  await a.device.connect();await b.device.connect();await a.device.refresh();
+  const file=[...n.files.values()].find(f=>f.name===`session-${b.device.id}.json`),gate=defer();let blocked=false;
+  n.intercept(async({url,path})=>{
+    if(!blocked&&url.hostname==='download.example'&&path===`/${file.id}`){
+      blocked=true;const old=file.text;await gate.promise;return new Response(old);
+    }
+  });
+  const oldRefresh=a.device.refresh();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(blocked,true);n.advance(5000);b.state.state='recording';await b.device.runCycle();await a.device.refresh();
+  gate.resolve();await oldRefresh;
+  const home=a.device.rows.find(row=>row.sessionId===b.device.id);
+  assert.equal(home.state,'recording');assert.equal(home.at,n.now());
 });
 
 test('the next connection drains old session files from before the update without touching other data',async()=>{
@@ -171,7 +224,7 @@ test('the next connection drains old session files from before the update withou
   for(let index=0;index<28;index++)stale.push(n.write(`session-99999999-0000-4000-8000-${String(index).padStart(12,'0')}.json`,{old:true}));
   const keep=n.write('keep.json',{unrelated:true}),transcript=n.write('transcript.txt','text','transcripts');
   const folder=n.write('session-99999999-0000-4000-8000-999999999999.json',{});
-  n.advance(RECENT_MS);
+  n.advance(SESSION_FILE_TTL);
   n.intercept(({method,path})=>method==='GET'&&path.endsWith('/control/children')?json({value:[
     ...[...n.files.values()].filter(f=>f.id!==folder.id&&f.parent==='control').map(n.metadata),
     {...n.metadata(folder),file:undefined,folder:{}},
@@ -187,7 +240,7 @@ test('the next connection drains old session files from before the update withou
 test('slow backlog cleanup keeps publishing heartbeats before this tab can expire',async()=>{
   const n=network();
   for(let index=0;index<12;index++)n.write(`session-99999999-0000-4000-8000-${String(index).padStart(12,'0')}.json`,{});
-  n.advance(RECENT_MS);
+  n.advance(SESSION_FILE_TTL);
   n.intercept(({method,path})=>{
     if((method==='GET'||method==='DELETE')&&/\/items\/file-\d+$/.test(path))n.advance(2000);
   });
@@ -202,7 +255,7 @@ test('slow backlog cleanup keeps publishing heartbeats before this tab can expir
 for(const phase of ['metadata read','delete'])test(`a new heartbeat during cleanup ${phase} is never deleted`,async()=>{
   const n=network(),a=n.make('Work'),b=n.make('Home');await a.device.connect();await b.device.connect();
   const name=`session-${b.device.id}.json`,file=[...n.files.values()].find(f=>f.name===name);
-  n.advance(RECENT_MS);let renewed=false;
+  n.advance(SESSION_FILE_TTL);let renewed=false;
   n.intercept(({method,path})=>{
     if(!renewed&&path.endsWith(`/items/${file.id}`)&&method===(phase==='delete'?'DELETE':'GET')){
       renewed=true;n.write(name,b.device.snapshot());
@@ -216,7 +269,7 @@ for(const phase of ['metadata read','delete'])test(`a new heartbeat during clean
 test('cleanup revalidates the folder and name before deleting a previously listed session',async()=>{
   const n=network(),a=n.make('Work'),b=n.make('Home');await a.device.connect();await b.device.connect();
   const file=[...n.files.values()].find(f=>f.name===`session-${b.device.id}.json`);
-  n.advance(RECENT_MS);
+  n.advance(SESSION_FILE_TTL);
   n.intercept(({method,path})=>{
     if(method==='GET'&&path.endsWith(`/items/${file.id}`))file.parent='transcripts';
   });
@@ -227,7 +280,7 @@ test('cleanup revalidates the folder and name before deleting a previously liste
 test('cleanup retries after throttling and disconnecting during validation prevents deletion',async()=>{
   const n=network(),a=n.make('Work'),b=n.make('Home');await a.device.connect();await b.device.connect();
   const file=[...n.files.values()].find(f=>f.name===`session-${b.device.id}.json`);
-  n.advance(RECENT_MS);
+  n.advance(SESSION_FILE_TTL);
   n.intercept(({method})=>method==='DELETE'?json({},429,{'Retry-After':'12'}):null);
   await a.device.runCycle();assert.equal(n.files.has(file.id),true);assert.equal(a.timers.at(-1).delay,12000);
   const gate=defer();n.intercept(async({method,path})=>{
@@ -269,7 +322,7 @@ test('expired commands never execute and reconnecting uses a fresh session ident
 
 test('stale targets must be refreshed before sending; old protocol signals are cleaned without touching unrelated files',async()=>{
   const n=network(),a=n.make('A'),b=n.make('B');await a.device.connect();await b.device.connect();await a.device.refresh();
-  n.advance(31000);await assert.rejects(a.device.send(b.device.id,'start'),/recently seen/);
+  n.advance(PRESENCE_TTL);await assert.rejects(a.device.send(b.device.id,'start'),/recently seen/);
   n.write('keep.json',{unrelated:true});n.write('transcript.txt','text','transcripts');
   const old=n.write(`ack-${b.device.id}-00000000-0000-4000-8000-999999999999.json`,{});
   n.advance(300001);await a.device.runCycle();assert.equal(n.files.has(old.id),false);
@@ -370,3 +423,4 @@ test('a moved command item or changed account cannot cause execution outside the
   b.auth.acquireTokenSilent=async()=>({account:{homeAccountId:'wrong-account'},accessToken:'other-token'});
   const count=n.calls.length;await b.device.runCycle();assert.equal(n.calls.length,count);assert.deepEqual(b.actions,[]);
 });
+

@@ -11,7 +11,7 @@
   <script defer src="vendor/vad/bundle.min.js"></script>
   <script defer src="vendor/msal/msal-browser.min.js"></script>
   <script defer src="vendor/jszip/jszip.min.js"></script>
-  <script type="module" src="js/app.mjs?v=20261025-secondary-options1"></script>
+  <script type="module" src="js/app.mjs?v=20261027-devices1"></script>
 </head>
 <body>
   <div class="privacy-controls">
@@ -267,12 +267,12 @@
     <p class="devices-help">Connect each tab using the same Microsoft account. Closing this window leaves the tab connected. Closing the browser tab ends its connection.</p>
     <div class="devices-heading"><span id="devicesStatus" role="status">Not connected</span><button id="devicesRefresh" type="button" disabled>Refresh</button></div>
     <div class="devices-table-wrap"><table class="devices-table"><thead><tr><th>Tab</th><th>Status</th><th>Last sound detected</th><th>Last seen</th></tr></thead><tbody id="deviceRows"></tbody></table></div>
-    <p id="devicesEmpty" class="devices-help">No tabs seen in the last 10 seconds. Connect this tab or Refresh.</p>
+    <p id="devicesEmpty" class="devices-help">No tabs seen in the last 2 minutes. Connect this tab or Refresh.</p>
     <div class="device-actions">
       <button id="device-start" type="button" disabled>Start</button><button id="device-pause" type="button" disabled>Pause</button><button id="device-resume" type="button" disabled>Resume</button>
       <button id="device-stop" type="button" disabled>Stop</button><button id="device-stop-and-transcribe" type="button" disabled>Stop and transcribe</button><button id="device-abort" class="danger" type="button" disabled>Abort</button>
     </div>
-    <p class="devices-help">Status updates about every 5 seconds. Tabs expire after 10 seconds without an update; connected tabs delete expired status files. Select a tab before sending a command. Stop and transcribe starts a fresh recording while processing the previous one. Commands expire after 60 seconds.</p>
+    <p class="devices-help">Status updates about every 5 seconds, but Drive requests can take longer. After 30 seconds without an update, a tab shows Updates delayed with its last reported status and remains selectable for up to 2 minutes. Connected tabs delete status files after 5 minutes without an update. Select a tab before sending a command; delayed updates do not confirm command delivery. Stop and transcribe starts a fresh recording while processing the previous one. Commands expire after 60 seconds.</p>
     <p class="devices-help">Last sound detected is measured before VAD and shown in your local time. Background noise can update it; it does not prove speech or that every microphone is working. A new recording resets it; pause/resume preserves it. Older tabs show sound activity unavailable—save any current recording, then refresh that tab to update.</p>
     <div id="devicesMessage" class="devices-message" role="status"></div><div id="devicesResults" class="devices-results" aria-live="polite"></div>
   </dialog>
@@ -286,3 +286,4 @@
   </dialog>
 </body>
 </html>
+

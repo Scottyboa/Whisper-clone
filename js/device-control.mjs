@@ -10,7 +10,10 @@ const ACTIONS = new Set(['start', 'pause', 'resume', 'stop', 'stop-and-transcrib
 const STATES = new Set(['idle','starting','recording','pausing','paused','resuming','stopping','aborting','error']);
 const SCHEMA = 'whisper-clone.devices.v1';
 export const COMMAND_TTL = 60000;
-export const RECENT_MS = 10000;
+// A slow Drive request is not evidence that a recording tab has disconnected.
+export const RECENT_MS = 30000;
+export const PRESENCE_TTL = 120000;
+export const SESSION_FILE_TTL = 300000;
 const MAX_JSON = 16384;
 const sameChild = (item, parent, name) => item?.id && item.parentReference?.id === parent && !item.remoteItem &&
   (name == null || item.name === name);
@@ -169,7 +172,7 @@ export class DeviceControl {
     const ordered = [...items].sort((a,b)=>Number(sessionPattern.test(b.name))-Number(sessionPattern.test(a.name)));
     const expired = item => {
       const age = this.now()-Date.parse(item.lastModifiedDateTime);
-      return sessionPattern.test(item.name) ? age >= RECENT_MS :
+      return sessionPattern.test(item.name) ? age >= SESSION_FILE_TTL :
         (commandPattern.test(item.name) || ackPattern.test(item.name)) && age > 300000;
     };
     for (const item of ordered) {
@@ -239,11 +242,11 @@ export class DeviceControl {
       await this.publishPresence(token,generation);
       if (!this.fresh(generation)) return [];
       const match = sessionPattern.exec(item.name);
-      if (!match || match[1] === this.id || !isFile(item) || this.now()-Date.parse(item.lastModifiedDateTime)>=RECENT_MS) continue;
+      if (!match || match[1] === this.id || !isFile(item) || this.now()-Date.parse(item.lastModifiedDateTime)>=PRESENCE_TTL) continue;
       try {
         const value = await this.read(token,item);
         if (value?.schema === SCHEMA && value.type === 'session' && value.sessionId === match[1] &&
-            Number.isFinite(value.at) && value.at <= this.now()+5000 && this.now()-value.at<RECENT_MS && STATES.has(value.state)) {
+            Number.isFinite(value.at) && value.at <= this.now()+5000 && this.now()-value.at<PRESENCE_TTL && STATES.has(value.state)) {
           // Unknown/malformed activity data is unavailable, never "no sound".
           const {inputActivityVersion,lastSoundAt,...session}=value;
           rows.push({...session,...inputActivityInfo(value,value.at),name:cleanName(value.name),local:false});
@@ -251,10 +254,16 @@ export class DeviceControl {
       } catch (error) { if (error.retryMs) throw error; }
     }
     if (!this.fresh(generation)) return [];
+    // Keep last-known rows through missing listings or failed reads, but never
+    // extend their heartbeat time. An older overlapping refresh cannot regress a row.
+    const known = new Map(this.rows.filter(row=>!row.local).map(row=>[row.sessionId,row]));
+    for (const row of rows) {
+      if (!known.has(row.sessionId) || row.at >= known.get(row.sessionId).at) known.set(row.sessionId,row);
+    }
     // Include this tab during listing propagation delays, using its last successful heartbeat time.
     const own = this.rows.find(row=>row.sessionId===this.id);
-    this.rows = rows.filter(row=>this.now()-row.at<RECENT_MS);
-    if (own && this.now()-own.at<RECENT_MS) this.rows.unshift({...this.snapshot(),at:own.at,local:true});
+    this.rows = [...known.values()].filter(row=>this.now()-row.at<PRESENCE_TTL);
+    if (own && this.now()-own.at<PRESENCE_TTL) this.rows.unshift({...this.snapshot(),at:own.at,local:true});
     for (const [id,pending] of this.pending) {
       const item=items.find(item=>item.name===`ack-${pending.target}-${id}.json`);
       if (item && !['completed','failed'].includes(pending.result?.status)) {
@@ -274,7 +283,7 @@ export class DeviceControl {
   async send(target, action) {
     if (!this.active || !idPattern.test(target) || !ACTIONS.has(action)) throw new Error('Invalid Devices command.');
     const row=this.rows.find(row=>row.sessionId===target);
-    if (!row || this.now()-row.at>=RECENT_MS) throw new Error('Refresh Devices and select a recently seen tab.');
+    if (!row || this.now()-row.at>=PRESENCE_TTL) throw new Error('Refresh Devices and select a recently seen tab.');
     if ([...this.pending.values()].some(p=>p.target===target && !p.expired && !['completed','failed'].includes(p.result?.status) && (!['stop','abort'].includes(action) || p.action===action))) throw new Error('Wait for the previous command result, then Refresh.');
     const generation=this.generation, token=await this.auth();if(!this.fresh(generation))throw new Error('Devices disconnected.');
     const id=this.makeId(),createdAt=this.now(),expiresAt=createdAt+COMMAND_TTL;
@@ -287,3 +296,4 @@ export class DeviceControl {
     this.emit();return id;
   }
 }
+

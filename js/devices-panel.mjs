@@ -1,7 +1,8 @@
-import { RECENT_MS } from './device-control.mjs?v=20261021-sound1';
+import { RECENT_MS, PRESENCE_TTL } from './device-control.mjs?v=20261027-devices1';
 import { inputActivityLabel } from './input-activity.mjs?v=20261021-sound1';
 const labels = {start:'Start',pause:'Pause',resume:'Resume',stop:'Stop','stop-and-transcribe':'Stop and transcribe',abort:'Abort'};
 const stateLabels = {idle:'Ready',starting:'Starting…',recording:'Recording',pausing:'Pausing…',paused:'Paused',resuming:'Resuming…',stopping:'Finishing…',aborting:'Discarding…',error:'Audio error'};
+const setText = (element, value) => { if (element.textContent !== value) element.textContent = value; };
 export function createAbortPrompt({dialog, text, yes, no}) {
   let resolve = null;
   const finish = value => { const done=resolve;resolve=null;dialog.close();done?.(value); };
@@ -16,7 +17,7 @@ export function createAbortPrompt({dialog, text, yes, no}) {
 }
 export class DevicesPanel {
   constructor({devices,connect,confirmAbort,$ = id=>document.getElementById(id),now=Date.now}) {
-    Object.assign(this,{devices,connect,confirmAbort,$,now});this.selected=null;this.busy=false;
+    Object.assign(this,{devices,connect,confirmAbort,$,now});this.selected=null;this.busy=false;this.rowViews=new Map();
     $('devicesName').value=devices.name;
     $('devices').addEventListener('click',()=>{ $('devicesDialog').showModal();if(devices.active)this.refresh();else this.render(); });
     $('devicesClose').addEventListener('click',()=>{ $('devicesDialog').close(); });
@@ -51,17 +52,29 @@ export class DevicesPanel {
     $('devicesSummary').textContent=devices.active?'Devices connected':'Devices not connected';
     $('devicesConnect').textContent=devices.active?'Enable audio here':'Connect this tab';
     $('devicesConnect').disabled=this.busy;$('devicesDisconnect').disabled=this.busy||!devices.active;$('devicesRefresh').disabled=this.busy||!devices.active;
-    const rows=devices.rows.filter(row=>this.now()-row.at<RECENT_MS);$('deviceRows').replaceChildren();
+    const now=this.now(),rows=devices.rows.filter(row=>now-row.at<PRESENCE_TTL);
+    const visible=new Set(rows.map(row=>row.sessionId));
+    for(const [id,view] of this.rowViews){
+      if(!visible.has(id)){view.tr.remove();this.rowViews.delete(id);}
+    }
     if(!rows.some(row=>row.sessionId===this.selected))this.selected=null;
     for(const row of rows){
-      const tr=document.createElement('tr'),name=document.createElement('td'),button=document.createElement('button');
-      button.type='button';button.textContent=`${row.name}${row.local?' — this tab':''} · ${row.sessionId.slice(0,8)}`;
-      button.setAttribute('aria-pressed',String(row.sessionId===this.selected));button.className='device-select';
-      button.addEventListener('click',()=>{this.selected=row.sessionId;this.render();});name.append(button);tr.append(name);
-      const status=document.createElement('td');status.textContent=`${stateLabels[row.state]||row.state}${row.transcribing?' · Transcribing':''}${row.uploading?' · Drive busy':''}${!row.audioReady?' · Enable audio locally':''}`;
-      const sound=document.createElement('td');sound.textContent=inputActivityLabel(row,this.now());
-      const seen=document.createElement('td'),age=Math.max(0,this.now()-row.at);seen.textContent=`${Math.floor(age/1000)}s ago`;
-      if(row.sessionId===this.selected)tr.classList.add('selected');tr.append(status,sound,seen);$('deviceRows').append(tr);
+      let view=this.rowViews.get(row.sessionId);
+      if(!view){
+        const tr=document.createElement('tr'),name=document.createElement('td'),button=document.createElement('button');
+        const status=document.createElement('td'),sound=document.createElement('td'),seen=document.createElement('td');
+        button.type='button';button.className='device-select';
+        button.addEventListener('click',()=>{this.selected=row.sessionId;this.render();});
+        name.append(button);tr.append(name,status,sound,seen);$('deviceRows').append(tr);
+        view={tr,button,status,sound,seen};this.rowViews.set(row.sessionId,view);
+      }
+      const {tr,button,status,sound,seen}=view,age=Math.max(0,now-row.at);
+      setText(button,`${row.name}${row.local?' — this tab':''} · ${row.sessionId.slice(0,8)}`);
+      button.setAttribute('aria-pressed',String(row.sessionId===this.selected));
+      const reported=`${stateLabels[row.state]||row.state}${row.transcribing?' · Transcribing':''}${row.uploading?' · Drive busy':''}${!row.audioReady?' · Enable audio locally':''}`;
+      setText(status,`${age>=RECENT_MS?'Updates delayed · Last reported: ':''}${reported}`);
+      setText(sound,inputActivityLabel(row,now));setText(seen,`${Math.floor(age/1000)}s ago`);
+      tr.classList.toggle('selected',row.sessionId===this.selected);
     }
     $('devicesEmpty').hidden=rows.length>0;
     const row=rows.find(row=>row.sessionId===this.selected),recent=!!row;
@@ -81,3 +94,4 @@ export class DevicesPanel {
   }
   dispose(){clearInterval(this.timer);}
 }
+

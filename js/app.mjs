@@ -1,7 +1,7 @@
 import { Recorder } from './recorder.mjs?v=20261021-sound1';
 import { createDriveImportPrompt } from './drive-import-prompt.mjs?v=20261018-folders1';
-import { DeviceControl } from './device-control.mjs?v=20261021-sound1';
-import { DevicesPanel, createAbortPrompt } from './devices-panel.mjs?v=20261021-sound1';
+import { DeviceControl } from './device-control.mjs?v=20261027-devices1';
+import { DevicesPanel, createAbortPrompt } from './devices-panel.mjs?v=20261027-devices1';
 import { clock, duration, dateStamp, timeStamp, recordingName, recordingTranscriptName, download } from './audio.mjs?v=20261015-clock1';
 import { MailControl } from './graph.mjs?v=20261023-upload1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';
@@ -440,3 +440,4 @@ function bootstrap() {
   window.addEventListener('pageshow', event => { if (event.persisted) location.reload(); });
   updateRecorder(); updateKey(); updateDrive(); renderHistory();
 }
+
