@@ -1,7 +1,14 @@
-export function createSecondaryPrompt({dialog, summary, transcribe, download, apply, cancel, close}) {
+export function createSecondaryPrompt({dialog, summary, transcribe, download, autoExport, exportOptions, exportError, folders, apply, cancel, close}) {
   let resolve = null;
+  const chosen = () => folders.filter(folder => folder.input.checked).map(folder => folder.name);
   const update = () => {
     const selected = transcribe.checked || download.checked;
+    const exporting = selected && autoExport.checked;
+    autoExport.disabled = !selected;
+    exportOptions.hidden = !exporting;
+    folders.forEach(folder => { folder.input.disabled = !exporting; });
+    apply.disabled = exporting && !chosen().length;
+    exportError.textContent = apply.disabled ? 'Choose at least one OneDrive destination, or turn off automatic export.' : '';
     apply.textContent = selected ? 'Merge and transcribe' : 'Exit';
     apply.classList.toggle('primary', selected);
   };
@@ -15,8 +22,12 @@ export function createSecondaryPrompt({dialog, summary, transcribe, download, ap
       update();
     });
   }
+  autoExport.addEventListener('change', update);
+  folders.forEach(folder => folder.input.addEventListener('change', update));
   apply.addEventListener('click', () => {
-    finish(transcribe.checked || download.checked ? {download:download.checked} : null);
+    const selected = transcribe.checked || download.checked;
+    if (selected && autoExport.checked && !chosen().length) { update(); return; }
+    finish(selected ? {download:download.checked, ...(autoExport.checked ? {exportFolders:chosen()} : {})} : null);
   });
   cancel.addEventListener('click', () => finish(null));
   close.addEventListener('click', () => finish(null));
@@ -30,9 +41,12 @@ export function createSecondaryPrompt({dialog, summary, transcribe, download, ap
   const show = text => {
     if (resolve) return Promise.resolve(null);
     summary.textContent = text;
-    transcribe.checked = false; download.checked = true; update();
+    transcribe.checked = false; download.checked = true; autoExport.checked = false;
+    folders.forEach(folder => { folder.input.checked = !!folder.defaultChecked; });
+    update();
     return new Promise(done => { resolve = done; dialog.showModal(); apply.focus(); });
   };
   show.cancel = () => finish(null);
   return show;
 }
+

@@ -7,8 +7,8 @@ import { MailControl } from './graph.mjs?v=20261023-upload1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';
 import { transcribeFile } from './soniox.mjs?v=20261025-secondary3';
 import { mergeSecondaryRecordings } from './secondary-recordings.mjs?v=20261025-secondary3';
-import { sortSecondaryFiles } from './secondary-sections.mjs?v=20261025-secondary3';
-import { createSecondaryPrompt } from './secondary-prompt.mjs?v=20261025-secondary-options1';
+import { sortSecondaryFiles, secondaryNames } from './secondary-sections.mjs?v=20261025-secondary3';
+import { createSecondaryPrompt } from './secondary-prompt.mjs?v=20261028-secondary-export1';
 import { prepareManualAudio, cancelManualVAD } from './manual-vad.mjs?v=20261025-secondary3';
 import { vadDownloadFile } from './vad-download.mjs?v=20261025-secondary3';
 import { cancelFlacTasks } from './flac-tasks.mjs?v=20261017-flac2';
@@ -53,6 +53,9 @@ function bootstrap() {
     folders:[{name:'Transcripts',input:$('driveFolderOriginal')},{name:'translations',input:$('driveFolderTranslations')},{name:'temp',input:$('driveFolderTemp')}]});
   const secondaryPrompt = createSecondaryPrompt({dialog:$('secondaryDialog'),summary:$('secondarySummary'),
     transcribe:$('secondaryTranscribeOnly'),download:$('secondaryWithDownload'),apply:$('secondaryApply'),
+    autoExport:$('secondaryAutoExport'),exportOptions:$('secondaryExportOptions'),exportError:$('secondaryExportError'),
+    folders:[{name:'Transcripts',input:$('secondaryExportOriginal'),defaultChecked:true},
+      {name:'translations',input:$('secondaryExportTranslations')}, {name:'temp',input:$('secondaryExportTemp'),defaultChecked:true}],
     cancel:$('secondaryCancel'),close:$('secondaryClose')});
   const confirmAbort = createAbortPrompt({dialog:$('abortDialog'),text:$('abortQuestion'),yes:$('abortYes'),no:$('abortNo')});
   let deviceName = 'This computer';
@@ -362,7 +365,8 @@ function bootstrap() {
       if (!options || pageClosing) return;
       if (!apiKey) { message('Import a Soniox key before using Secondary rec.', true); return; }
       $('speakers').checked = true; $('secondaryStatus').textContent = ''; $('secondaryStatus').classList.remove('error');
-      queueTranscription(null, apiKey, true, null, {files:sorted.map(item => item.file),download:options.download}).catch(() => {});
+      const exportOptions = options.exportFolders ? {folders:[...options.exportFolders],account:mail.account || devices.account || drive.account} : null;
+      queueTranscription(null, apiKey, true, null, {files:sorted.map(item => item.file),download:options.download,export:exportOptions}).catch(() => {});
     } catch (error) { message(error.message || 'Secondary files could not be selected.', true); }
   });
   function queueTranscription(source, key, speakers, automatic = null, secondary = null) {
@@ -371,10 +375,23 @@ function bootstrap() {
       let cleanupFailed = false, outputFilename = null;
       try {
         if (secondary) {
+          if (secondary.export) {
+            // Obtain consent now, before a potentially long VAD/STT job. The
+            // later upload stays silent and bound to this selected account.
+            message('Connecting to OneDrive for automatic export…');
+            try {
+              await drive.token({interactive:true,account:secondary.export.account});
+              secondary.export.account = drive.account;
+            } catch (error) {
+              throw new Error(`OneDrive connection failed. Reconnect Microsoft, or turn off automatic export and try again. ${error.message || ''}`);
+            }
+            if (pageClosing) return;
+          }
           const merged = await mergeSecondaryRecordings(secondary.files, status => message(status));
           if (pageClosing) return;
           if (merged.empty) throw new Error('No speech detected in the selected secondary recordings. No file downloaded or sent to Soniox.');
           source = merged.file;
+          outputFilename = secondaryNames(merged.secondary).transcript;
           if (secondary.download) {
             try {
               download(source, source.name);
@@ -390,29 +407,30 @@ function bootstrap() {
         file = source; $('fileName').textContent = source.name;
         const text = await transcribeFile(source, key, speakers, (status, transcript, error, context) => {
           if (transcript !== undefined) {
-            outputFilename = context?.filename || null; transcriptFilename = outputFilename;
+            outputFilename = context?.filename || (secondary ? outputFilename : null); transcriptFilename = outputFilename;
             $('transcript').value = transcript; updateDrive();
           }
           if (error) cleanupFailed = true;
           message(status, error);
         }, { manualVAD: !automatic && !secondary });
+        if (pageClosing) return;
         $('transcript').value = text; transcriptFilename = outputFilename; updateDrive();
-        if (automatic) {
+        const autoExport = automatic ? {name:recordingTranscriptName(automatic.entry),account:automatic.account,folders:['Transcripts','temp']} :
+          secondary?.export ? {...secondary.export,name:outputFilename} : null;
+        if (autoExport) {
           await queueDrive(async () => {
-            driveMessage('Saving recording transcript to OneDrive…');
+            driveMessage(`Saving ${secondary ? 'secondary recording' : 'recording'} transcript to OneDrive…`);
             try {
-              const name = await drive.upload(text, {
-                name: recordingTranscriptName(automatic.entry), interactive: false,
-                account: automatic.account, folders: ['Transcripts', 'temp'],
-              });
-              driveMessage(`Saved ${name} to OneDrive: Transcripts and temp.`);
+              const name = await drive.upload(text, {...autoExport,interactive:false});
+              driveMessage(`Saved ${name} to OneDrive: ${autoExport.folders.join(', ')}.`);
             } catch (error) {
               driveMessage(`Automatic upload failed. The transcript is in the output field; use EX.Drive to retry. ${error.message || ''}`, true);
               throw error;
             }
           });
         }
-        if (!cleanupFailed) message(automatic ? 'Recording transcribed with speaker labels and saved to OneDrive.' : '');
+        if (!cleanupFailed) message(automatic ? 'Recording transcribed with speaker labels and saved to OneDrive.' :
+          autoExport ? 'Secondary recordings transcribed with speaker labels and saved to OneDrive.' : '');
       } catch (error) {
         message(error.message || 'Transcription failed. The audio file is selected for retry.', true);
         throw error;
@@ -440,4 +458,5 @@ function bootstrap() {
   window.addEventListener('pageshow', event => { if (event.persisted) location.reload(); });
   updateRecorder(); updateKey(); updateDrive(); renderHistory();
 }
+
 

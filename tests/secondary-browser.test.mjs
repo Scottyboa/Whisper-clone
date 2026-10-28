@@ -23,8 +23,8 @@ test('Chrome Secondary rec runs real Silero once per batch, supports both output
   let modelLoads=0;
   const fixtures={
     '/js/graph.mjs':`export class MailControl{constructor(options){Object.assign(this,options);window.testCommand=options.onCommand;this.active=false}async client(){return {}}unlink(){}}`,
-    '/js/device-control.mjs':`export const RECENT_MS=10000;export class DeviceControl{constructor(options){Object.assign(this,options);this.active=false;this.rows=[];this.pending=new Map()}async connect(){}disconnect(){}}`,
-    '/js/transcript-drive.mjs':`export class TranscriptDrive{async upload(text,options){window.testDriveUploads.push({text,options});return options.name}}`,
+    '/js/device-control.mjs':`export const RECENT_MS=30000,PRESENCE_TTL=120000;export class DeviceControl{constructor(options){Object.assign(this,options);this.active=false;this.rows=[];this.pending=new Map()}async connect(){}disconnect(){}}`,
+    '/js/transcript-drive.mjs':`export class TranscriptDrive{async token(options){window.testDriveAuth.push(options);this.account={homeAccountId:'fixture-account'};return 'token'}async upload(text,options){window.testDriveUploads.push({text,options});return options.name}}`,
   };
   const server=createServer(async(request,response)=>{
     try{
@@ -36,7 +36,7 @@ test('Chrome Secondary rec runs real Silero once per batch, supports both output
       else if(path==='/'){
         const setup=`<script>
           sessionStorage.setItem('whisper-clone.soniox-key','fixture-only');
-          window.testPayloads=[];window.testJobs=[];window.testDownloads=[];window.testDriveUploads=[];window.testDeletes=[];
+          window.testPayloads=[];window.testJobs=[];window.testDownloads=[];window.testDriveUploads=[];window.testDriveAuth=[];window.testDeletes=[];
           const nativeURL=URL.createObjectURL.bind(URL);URL.createObjectURL=blob=>{window.testDownloads.push(blob);return nativeURL(blob)};
           const nativeFetch=fetch.bind(window);
           window.fetch=async(url,options={})=>{
@@ -107,6 +107,20 @@ test('Chrome Secondary rec runs real Silero once per batch, supports both output
     assert.equal(second.uploads,2);assert.equal(second.jobs,2);assert.equal(second.downloads,1);assert.equal(second.drive,0);assert.equal(second.deletes,4);
     assert.match(second.text,/15:09[^]*First clip speech[^]*20:19[^]*Last clip speech/);assert.equal(modelLoads,2);
     assert.equal((await readdir(downloads)).filter(name=>name.endsWith('.wav')).length,1);
+    // Opt in for a later batch and choose only translations. The finished TXT
+    // keeps its title; no audio is uploaded and previous batches remain local.
+    await evaluate(`document.getElementById('secondaryFiles').dispatchEvent(new Event('change'));
+      document.getElementById('secondaryTranscribeOnly').click();document.getElementById('secondaryAutoExport').click();
+      document.getElementById('secondaryExportOriginal').click();document.getElementById('secondaryExportTemp').click();
+      document.getElementById('secondaryExportTranslations').click();document.getElementById('secondaryApply').click()`);
+    for(let i=0;i<600&&!await evaluate("window.testDriveUploads.length===1&&!document.getElementById('secondaryRec').disabled");i++)await delay(40);
+    const exported=await evaluate(`({auth:window.testDriveAuth,uploads:window.testDriveUploads,text:document.getElementById('transcript').value,downloads:window.testDownloads.length,jobs:window.testJobs.length})`);
+    assert.equal(exported.auth.length,1);assert.equal(exported.auth[0].interactive,true);
+    assert.equal(exported.uploads.length,1);assert.equal(exported.uploads[0].text,exported.text);
+    assert.deepEqual(exported.uploads[0].options.folders,['translations']);
+    assert.equal(exported.uploads[0].options.account.homeAccountId,'fixture-account');assert.equal(exported.uploads[0].options.interactive,false);
+    assert.match(exported.uploads[0].options.name,/^secondary rec - .*_VAD-.*\.txt$/);
+    assert.equal(exported.downloads,1);assert.equal(exported.jobs,3);
     // Reimport plus another real Silero pass preserves the source sections.
     const reimport=await evaluate(`(async()=>{
       const {prepareManualAudio}=await import('./js/manual-vad.mjs?v=20261025-secondary3');
@@ -119,3 +133,4 @@ test('Chrome Secondary rec runs real Silero once per batch, supports both output
     await rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100});
   }
 });
+

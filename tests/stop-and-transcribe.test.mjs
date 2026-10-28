@@ -17,8 +17,8 @@ const account = { homeAccountId: 'recording-account' };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => { resolve=a; reject=b; }); return {promise,resolve,reject}; };
 const app = readFileSync(new URL('../js/app.mjs', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '');
-function harness({ key = 'soniox-key', speech = true, timed = false, transcribe, upload, onCapture, onDrain, downloadError = false, abortConfirmed = true, readDrive, prepareVAD, secondaryMerge } = {}) {
-  const elements = new Map(), downloads = [], transcriptions = [], uploads = [], commands = [], captures = [], importCalls = [];
+function harness({ key = 'soniox-key', speech = true, timed = false, transcribe, upload, onCapture, onDrain, downloadError = false, abortConfirmed = true, readDrive, prepareVAD, secondaryMerge, authorize } = {}) {
+  const elements = new Map(), downloads = [], transcriptions = [], uploads = [], commands = [], captures = [], importCalls = [], authCalls=[];
   const makeElement = () => ({
     value: '', checked: false, disabled: false, textContent: '', children: [], listeners: new Map(),
     classList: { toggle() {}, add() {}, remove() {} },
@@ -45,6 +45,7 @@ function harness({ key = 'soniox-key', speech = true, timed = false, transcribe,
     async client() { return {}; } unlink() { this.active=false; }
   }
   class Drive {
+    async token(options) { authCalls.push(options);this.account=authorize ? await authorize(options) : account;return 'test-token'; }
     async upload(text, options) { uploads.push({text, options}); return upload ? upload(text,options) : options?.name || 'manual.txt'; }
     async clear(confirm) { return {count:0,cancelled:false}; }
     async exportZip(progress,options) { importCalls.push(options);return readDrive ? readDrive(progress,options) : {blob:new Blob(['zip']),name:'Transcripts.zip',count:1,completeText:'COMPLETE.txt\n\nrecording.txt\n\nSpeaker 1: Imported text'}; }
@@ -56,7 +57,7 @@ function harness({ key = 'soniox-key', speech = true, timed = false, transcribe,
   const context = vm.createContext({
     ...audio, download: (blob,name) => { downloads.push({blob,name}); if(downloadError)throw new Error('download blocked'); }, Recorder, MailControl: Mail, TranscriptDrive: Drive,
     prepareManualAudio: prepareVAD || (async source => ({file:new File([audio.wavBlob([new Int16Array(16000)])],source.name.replace(/\.[^.]*$/,'')+'.wav',{type:'audio/wav'}),timing:null})),
-    vadDownloadFile, sortSecondaryFiles, mergeSecondaryRecordings: secondaryMerge || ((files,status)=>realMerge(files,status,()=>({prepare:async file=>({file,timing:null}),close(){}}))), cancelFlacTasks(){}, cancelManualVAD(){},
+    vadDownloadFile, sortSecondaryFiles, secondaryNames, mergeSecondaryRecordings: secondaryMerge || ((files,status)=>realMerge(files,status,()=>({prepare:async file=>({file,timing:null}),close(){}}))), cancelFlacTasks(){}, cancelManualVAD(){},
     PrivacyView: class {}, AppGuide, File, createDriveImportPrompt, createSecondaryPrompt, DeviceControl:Devices, DevicesPanel:class{dispose(){}},createAbortPrompt:()=>async()=>abortConfirmed,
     transcribeFile: async (...args) => { transcriptions.push(args); return transcribe ? transcribe(...args) : 'Speaker 1: Hello\n\nSpeaker 2: Hi'; },
     sessionStorage: {getItem: name => name.endsWith('soniox-key') ? key : null, setItem() {}, removeItem() {}},
@@ -64,7 +65,7 @@ function harness({ key = 'soniox-key', speech = true, timed = false, transcribe,
     window: {opener:null,addEventListener() {}}, location: {}, navigator: {}, setInterval() {}, confirm:()=>true,
   });
   vm.runInContext(app,context);
-  return { el, downloads, transcriptions, uploads, commands, captures, recorder, mail, devices, importCalls, advance: ms => {now+=ms;} };
+  return { el, downloads, transcriptions, uploads, commands, captures, recorder, mail, devices, importCalls, authCalls, advance: ms => {now+=ms;} };
 }
 const commandMail = (overrides={}) => ({id:'command-id', subject:'', body:{contentType:'text',content:'stop and transcribe'},
   from:{emailAddress:{address:'self@example.com'}}, sender:{emailAddress:{address:'self@example.com'}},
@@ -520,12 +521,18 @@ test('VAD-only silence downloads nothing and leaves the controls available',asyn
 });
 
 
-function selectSecondary(h, {download=true, accept=true} = {}) {
+function selectSecondary(h, {download=true, accept=true, exportFolders=null} = {}) {
   const pending=h.el('secondaryFiles').listeners.get('change')();
   if(h.el('secondaryDialog').open){
     if(!accept)h.el('secondaryCancel').listeners.get('click')();
     else {
       if(!download){h.el('secondaryTranscribeOnly').checked=true;h.el('secondaryTranscribeOnly').listeners.get('change')();}
+      if(exportFolders){
+        h.el('secondaryAutoExport').checked=true;h.el('secondaryAutoExport').listeners.get('change')();
+        for(const [folder,id] of [['Transcripts','secondaryExportOriginal'],['translations','secondaryExportTranslations'],['temp','secondaryExportTemp']]){
+          h.el(id).checked=exportFolders.includes(folder);h.el(id).listeners.get('change')();
+        }
+      }
       h.el('secondaryApply').listeners.get('click')();
     }
   }
@@ -600,3 +607,77 @@ test('Secondary rec no checked modes exits without VAD, download or transcriptio
   assert.equal(h.el('secondaryApply').textContent,'Exit');h.el('secondaryApply').listeners.get('click')();await pending;await tick();
   assert.equal(merges,0);assert.equal(h.downloads.length,0);assert.equal(h.transcriptions.length,0);assert.equal(h.el('transcript').value,'Keep text');
 });
+
+const finishSecondary = async h => {
+  for(let i=0;i<100&&h.el('secondaryRec').disabled;i++)await tick();
+  assert.equal(h.el('secondaryRec').disabled,false,h.el('message').textContent);
+};
+test('Secondary rec exports the completed named TXT only to selected destinations in either output mode',async()=>{
+  for(const download of [true,false])for(const folders of [['Transcripts'],['translations'],['temp'],['Transcripts','translations','temp']]){
+    let completed;
+    const h=harness({transcribe:async(source,key,speakers,status)=>{
+      const {prepareAudio}=await import('../js/audio-import.mjs');const prepared=await prepareAudio(source);
+      const filename=secondaryNames(prepared.secondary).transcript;
+      completed=filename+'\n\n2026-10-25 15:09\n\nSpeaker 1: Exact secondary text';
+      status('Cleaning up…',completed,false,{filename});return completed;
+    }});
+    h.el('secondaryFiles').files=secondarySources();await selectSecondary(h,{download,exportFolders:folders});await finishSecondary(h);
+    assert.equal(h.authCalls.length,1);assert.equal(h.authCalls[0].interactive,true);
+    assert.equal(h.transcriptions.length,1);assert.equal(h.downloads.length,download?1:0);assert.equal(h.uploads.length,1);
+    const {text,options}=h.uploads[0];assert.equal(text,completed);assert.equal(text,h.el('transcript').value);
+    assert.match(options.name,/^secondary rec - 2026-10-25_15-09-00-000_to_2026-10-25_17-19-00-000_VAD-0m2s\.txt$/);
+    assert.deepEqual(Array.from(options.folders),folders);assert.equal(options.account,account);assert.equal(options.interactive,false);
+    assert.match(h.el('driveMessage').textContent,/Saved secondary rec/);
+  }
+});
+
+test('secondary export pins the account, destinations and result while recording and editing continue',async()=>{
+  const gate=deferred(),chosenAccount={homeAccountId:'chosen-at-sign-in'};
+  const h=harness({authorize:async()=>chosenAccount,transcribe:()=>gate.promise});
+  h.mail.account=null;h.devices.account=null;await h.devices.execute('start');
+  h.el('secondaryFiles').files=secondarySources();await selectSecondary(h,{download:false,exportFolders:['translations','temp']});
+  for(let i=0;i<100&&!h.transcriptions.length;i++)await tick();
+  assert.equal(h.transcriptions.length,1);assert.equal(h.uploads.length,0);assert.equal(h.recorder.state,'recording');
+  h.el('secondaryExportTranslations').checked=false;h.el('secondaryExportOriginal').checked=true;
+  h.el('transcript').value='Unrelated edit';h.mail.account={homeAccountId:'different-account'};
+  gate.resolve('Completed secondary text');await finishSecondary(h);
+  assert.equal(h.uploads.length,1);assert.equal(h.uploads[0].text,'Completed secondary text');
+  assert.deepEqual(Array.from(h.uploads[0].options.folders),['translations','temp']);assert.equal(h.uploads[0].options.account,chosenAccount);
+  assert.equal(h.recorder.state,'recording');
+});
+
+test('secondary export reports partial upload failure, preserves text for EX.Drive and never retries automatically',async()=>{
+  const h=harness({upload:async()=>{throw new Error('Saved to Transcripts. Failed to save to temp: denied. Retry only the failed folders.');}});
+  h.el('secondaryFiles').files=secondarySources();await selectSecondary(h,{exportFolders:['Transcripts','temp']});await finishSecondary(h);
+  assert.equal(h.transcriptions.length,1);assert.equal(h.uploads.length,1);
+  assert.equal(h.el('transcript').value,'Speaker 1: Hello\n\nSpeaker 2: Hi');
+  assert.match(h.el('driveMessage').textContent,/Automatic upload failed[^]*Saved to Transcripts[^]*Failed to save to temp/);
+  assert.equal(h.el('exportDrive').disabled,false);await tick();assert.equal(h.uploads.length,1);
+  h.el('transcribe').listeners.get('click')();await finishSecondary(h);assert.equal(h.uploads.length,1);
+});
+
+test('failed secondary sign-in stops before VAD/STT; silence and provider failure never export old output',async()=>{
+  let merges=0;
+  const denied=harness({authorize:async()=>{throw new Error('Consent cancelled');},secondaryMerge:async()=>{merges++;}});
+  denied.el('transcript').value='Old output';denied.el('secondaryFiles').files=secondarySources();
+  await selectSecondary(denied,{exportFolders:['temp']});await finishSecondary(denied);
+  assert.equal(merges,0);assert.equal(denied.transcriptions.length,0);assert.equal(denied.uploads.length,0);
+  assert.equal(denied.el('transcript').value,'Old output');assert.match(denied.el('message').textContent,/OneDrive connection failed/);
+  for(const options of [{secondaryMerge:async()=>({empty:true})},{transcribe:async()=>{throw new Error('Provider failed');}}]){
+    const h=harness(options);h.el('transcript').value='Old output';h.el('secondaryFiles').files=secondarySources();
+    await selectSecondary(h,{exportFolders:['temp']});await finishSecondary(h);
+    assert.equal(h.uploads.length,0);assert.equal(h.el('transcript').value,'Old output');
+  }
+});
+
+test('new secondary export checkboxes exist in HTML and optional export does not alter manual defaults',async()=>{
+  const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+  for(const id of ['secondaryAutoExport','secondaryExportOriginal','secondaryExportTranslations','secondaryExportTemp'])assert.match(html,new RegExp(`<input id="${id}"[^>]*type="checkbox"`));
+  assert.match(html,/<fieldset id="secondaryExportOptions"[^>]*hidden/);
+  const h=harness();h.el('secondaryFiles').files=secondarySources();await selectSecondary(h);await finishSecondary(h);
+  assert.equal(h.authCalls.length,0);assert.equal(h.uploads.length,0);
+  const next=h.el('secondaryFiles').listeners.get('change')();
+  assert.equal(h.el('secondaryAutoExport').checked,false);assert.equal(h.el('secondaryExportOptions').hidden,true);
+  h.el('secondaryCancel').listeners.get('click')();await next;
+});
+

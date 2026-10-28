@@ -11,7 +11,7 @@
   <script defer src="vendor/vad/bundle.min.js"></script>
   <script defer src="vendor/msal/msal-browser.min.js"></script>
   <script defer src="vendor/jszip/jszip.min.js"></script>
-  <script type="module" src="js/app.mjs?v=20261027-devices1"></script>
+  <script type="module" src="js/app.mjs?v=20261028-secondary-export1"></script>
 </head>
 <body>
   <div class="privacy-controls">
@@ -198,7 +198,7 @@
         <p><strong>VAD processing:</strong> after Upload File, use this button to run Silero VAD on a WAV, FLAC or MP3 and download a speech-only <code>-VAD.wav</code>, without a Soniox key, transcription or Drive upload. The original file stays selected and is not overwritten. No speech means no download. The same model and thresholds are used as for manual transcription.</p>
         <p>With speaker labels enabled, recordings made by this app can show original clock times beside speaker turns, even after VAD removed silence. Downloaded WAVs preserve available clock metadata, including after manual VAD processing. Playback is shortened, so its positions no longer match elapsed time from the original recording start.</p>
         <p>Every manual transcription runs VAD, including WAV and FLAC files from other recorders. App-generated FLACs first recover the audio kept by the original VAD, then run the manual VAD pass. Existing clock metadata is preserved through further trimming; files without it do not gain original clock times. Preparation can take several minutes for long files. A decoding or VAD failure stops the upload so the full file is never submitted as a fallback. Older app-generated FLACs remain supported for import and VAD processing.</p>
-        <p><strong>Secondary rec:</strong> select multiple WAVs named like <code>R-00058_2610251719_SVOS.WAV</code> or <code>R-00059_2610252019_REC.WAV</code> and choose one of two options: <strong>VAD Silero + transcribe</strong>, or <strong>VAD Silero + WAV download + transcribe</strong> (selected by default). Selecting one checkbox clears the other. Both options order the files by filename dates and times, run Silero VAD, and submit the merged speech to Soniox once with speaker labels on. The second option also downloads the merged WAV. With neither option selected, the button becomes Exit; Cancel, the red × and Escape also close the prompt without processing. Its name starts with <code>secondary rec - </code> and follows the usual recording filename format, using the first and last filename times and the retained duration. Results have a title and a separate dated section for each original file, including files with no detected speech. Both SVOS and REC files can be selected together. Filename dates and times are used exactly as written, with no daylight-saving or timezone adjustment, in the merge confirmation, WAV filename, transcript title and section headings. Original filenames are retained beside each heading. Filename times have minute precision and do not describe exact clock times inside voice-activated clips. Original files are not changed. The merged WAV keeps its source sections for reimport. Use EX.Drive to save the transcript with its secondary recording title; it is not saved to Drive automatically.</p>
+        <p><strong>Secondary rec:</strong> select multiple WAVs named like <code>R-00058_2610251719_SVOS.WAV</code> or <code>R-00059_2610252019_REC.WAV</code> and choose one of two options: <strong>VAD Silero + transcribe</strong>, or <strong>VAD Silero + WAV download + transcribe</strong> (selected by default). Selecting one checkbox clears the other. Both options order the files by filename dates and times, run Silero VAD, and submit the merged speech to Soniox once with speaker labels on. The second option also downloads the merged WAV. With neither option selected, the button becomes Exit; Cancel, the red × and Escape also close the prompt without processing. Its name starts with <code>secondary rec - </code> and follows the usual recording filename format, using the first and last filename times and the retained duration. Results have a title and a separate dated section for each original file, including files with no detected speech. Both SVOS and REC files can be selected together. Filename dates and times are used exactly as written, with no daylight-saving or timezone adjustment, in the merge confirmation, WAV filename, transcript title and section headings. Original filenames are retained beside each heading. Filename times have minute precision and do not describe exact clock times inside voice-activated clips. Original files are not changed. The merged WAV keeps its source sections for reimport. Enable <strong>Automatically export after transcription</strong> to save the finished TXT to your choice of Original (Transcripts), translations and temp; Original and temp start checked. Automatic export is off by default and requires at least one destination. Microsoft connects before processing; the finished upload uses the selected account and secondary recording title. Upload failures leave the text available for EX.Drive retry. With automatic export off, use EX.Drive to save manually.</p>
         <p><strong>Clear</strong> beside Import Key removes the Soniox key from this tab’s session after confirmation. It does not delete Drive files.</p>
       </section>
       <section aria-labelledby="guideDrive">
@@ -252,7 +252,14 @@
     <label class="drive-import-option"><input id="secondaryTranscribeOnly" type="checkbox"><span>VAD Silero + transcribe</span></label>
     <label class="drive-import-option"><input id="secondaryWithDownload" type="checkbox" checked><span>VAD Silero + WAV download + transcribe</span></label>
     </fieldset>
-    <p class="drive-import-help">Both options merge the selected files, remove silence with Silero VAD, and transcribe with Soniox speaker labels. Results are divided by original file. Filename dates and times are used exactly as written. Use EX.Drive to save the transcript.</p>
+    <label class="drive-import-option"><input id="secondaryAutoExport" type="checkbox" aria-controls="secondaryExportOptions"><span>Automatically export after transcription</span></label>
+    <fieldset id="secondaryExportOptions" class="drive-folder-options" hidden><legend>OneDrive destinations</legend>
+      <label class="drive-import-option"><input id="secondaryExportOriginal" type="checkbox" checked disabled><span>Original (Transcripts)</span></label>
+      <label class="drive-import-option"><input id="secondaryExportTranslations" type="checkbox" disabled><span>translations</span></label>
+      <label class="drive-import-option"><input id="secondaryExportTemp" type="checkbox" checked disabled><span>temp</span></label>
+    </fieldset>
+    <p id="secondaryExportError" class="devices-message" role="status"></p>
+    <p class="drive-import-help">Both options merge the selected files, remove silence with Silero VAD, and transcribe with Soniox speaker labels. Results are divided by original file. Filename dates and times are used exactly as written. Automatic export saves the finished TXT to each selected OneDrive destination using its secondary recording title. Otherwise, use EX.Drive to save it manually.</p>
     <div class="dialog-buttons"><button id="secondaryCancel" type="button">Cancel</button><button id="secondaryApply" class="primary" type="button">Merge and transcribe</button></div>
   </dialog>
   <dialog id="abortDialog" aria-labelledby="abortQuestion">
@@ -286,4 +293,5 @@
   </dialog>
 </body>
 </html>
+
 

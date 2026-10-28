@@ -24,7 +24,18 @@ With neither selected, the action button becomes Exit. Cancel, the red close
 button and Escape also dismiss the prompt without processing. Both modes keep
 speaker labels, filename-based dates, original-file sections, metadata and the
 same transcript title/export name. The merged audio stays selected in memory
-for a manual retry in either mode; there is no automatic Drive upload.
+for a manual retry in either mode.
+
+A third checkbox, **Automatically export after transcription**, is off each time
+the prompt opens. It is available with either transcription mode. When enabled,
+choose one or more OneDrive destinations: **Original (Transcripts)**,
+**translations** and **temp**. Original and temp start checked; these choices
+are independent of EX.Drive. At least one destination is required to continue.
+With no transcription mode selected, export is disabled and Exit still does no work.
+Microsoft sign-in/consent is obtained before processing, and the selected account
+and destinations are held for that batch. Failed sign-in stops before VAD/STT;
+reconnect Microsoft or turn off automatic export and retry. The completed upload
+uses silent authentication and cannot switch accounts mid-job.
 
 Each source receives the same pinned Silero VAD as manual transcription. One
 worker/model is reused for the batch, with its frame and model state reset
@@ -56,7 +67,13 @@ visibly rather than assigning text to an invented source section.
 
 The transcript's first line is its title in the existing full-interval/VAD TXT
 format, prefixed `secondary rec - `. EX.Drive keeps that filename when saving to
-the chosen folders. This manual workflow does not automatically upload to Drive.
+the chosen folders. With automatic export enabled, the finished transcript is
+saved to the selected folders with the same secondary filename, after successful
+transcription. The queued upload uses that job's text, not later output-field edits.
+Audio is never exported to OneDrive. Silent batches and failed transcription do
+not upload a transcript. Upload failures, including partial saves, are reported;
+the completed text remains in the output field for EX.Drive retry. Existing files
+are not overwritten, and the app does not automatically retry failed exports.
 Normal transcription and Drive import reset the special export filename.
 Audio download failures are reported independently and do not prevent Soniox
 processing. The merged file remains selected for retry if the provider fails.
@@ -85,7 +102,8 @@ Metadata is bounded to 2 MiB and 50,000 ranges; merged audio must fit the normal
 RIFF/WAV 32-bit size limit. Large batches still need memory for retained audio
 and temporary Blobs. Closing/reloading interrupts unfinished work and uses the
 existing unfinished-work prompt. No source files or audio archives are stored
-in localStorage, sessionStorage, IndexedDB or OneDrive by this feature.
+in localStorage, sessionStorage or IndexedDB. Only the completed TXT is uploaded
+to OneDrive when automatic export is explicitly selected (or via EX.Drive).
 
 ## Validation
 
@@ -93,3 +111,4 @@ Run `node --test tests/*.test.mjs`. Set WHISPER_TEST_CHROME to Chromium to inclu
 the real worker/model browser checks. They use synthetic speech and a mocked
 Soniox service, validating a single upload, real WAV playback, the silent source
 section, the filename interval, model reuse and metadata after a fresh VAD pass.
+
