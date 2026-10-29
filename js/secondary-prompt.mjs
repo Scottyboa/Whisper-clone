@@ -1,30 +1,34 @@
-export function createSecondaryPrompt({dialog, summary, transcribe, download, autoExport, exportOptions, exportError, folders, apply, cancel, close}) {
+export function createSecondaryPrompt({dialog, summary, transcribe, download, downloadOnly, autoExport, exportOptions, exportError, folders, apply, cancel, close}) {
   let resolve = null;
+  const modes = [transcribe, download, downloadOnly];
   const chosen = () => folders.filter(folder => folder.input.checked).map(folder => folder.name);
   const update = () => {
-    const selected = transcribe.checked || download.checked;
-    const exporting = selected && autoExport.checked;
-    autoExport.disabled = !selected;
+    const transcribing = transcribe.checked || download.checked;
+    const selected = transcribing || downloadOnly.checked;
+    if (downloadOnly.checked) autoExport.checked = false;
+    const exporting = transcribing && autoExport.checked;
+    autoExport.disabled = !transcribing;
     exportOptions.hidden = !exporting;
     folders.forEach(folder => { folder.input.disabled = !exporting; });
     apply.disabled = exporting && !chosen().length;
     exportError.textContent = apply.disabled ? 'Choose at least one OneDrive destination, or turn off automatic export.' : '';
-    apply.textContent = selected ? 'Merge and transcribe' : 'Exit';
+    apply.textContent = downloadOnly.checked ? 'Merge and download' : transcribing ? 'Merge and transcribe' : 'Exit';
     apply.classList.toggle('primary', selected);
   };
   const finish = value => {
     const done = resolve; resolve = null;
     dialog.close(); done?.(value);
   };
-  for (const [input, other] of [[transcribe, download], [download, transcribe]]) {
+  for (const input of modes) {
     input.addEventListener('change', () => {
-      if (input.checked) other.checked = false;
+      if (input.checked) modes.filter(other => other !== input).forEach(other => { other.checked = false; });
       update();
     });
   }
   autoExport.addEventListener('change', update);
   folders.forEach(folder => folder.input.addEventListener('change', update));
   apply.addEventListener('click', () => {
+    if (downloadOnly.checked) { finish({download:true,transcribe:false}); return; }
     const selected = transcribe.checked || download.checked;
     if (selected && autoExport.checked && !chosen().length) { update(); return; }
     finish(selected ? {download:download.checked, ...(autoExport.checked ? {exportFolders:chosen()} : {})} : null);
@@ -41,7 +45,7 @@ export function createSecondaryPrompt({dialog, summary, transcribe, download, au
   const show = text => {
     if (resolve) return Promise.resolve(null);
     summary.textContent = text;
-    transcribe.checked = false; download.checked = true; autoExport.checked = false;
+    transcribe.checked = false; download.checked = true; downloadOnly.checked = false; autoExport.checked = false;
     folders.forEach(folder => { folder.input.checked = !!folder.defaultChecked; });
     update();
     return new Promise(done => { resolve = done; dialog.showModal(); apply.focus(); });

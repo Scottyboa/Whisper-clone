@@ -521,7 +521,7 @@ test('VAD-only silence downloads nothing and leaves the controls available',asyn
 });
 
 
-function selectSecondary(h, {download=true, accept=true, exportFolders=null} = {}) {
+function selectSecondary(h, {download=true, accept=true, exportFolders=null, downloadOnly=false} = {}) {
   const pending=h.el('secondaryFiles').listeners.get('change')();
   if(h.el('secondaryDialog').open){
     if(!accept)h.el('secondaryCancel').listeners.get('click')();
@@ -533,6 +533,7 @@ function selectSecondary(h, {download=true, accept=true, exportFolders=null} = {
           h.el(id).checked=exportFolders.includes(folder);h.el(id).listeners.get('change')();
         }
       }
+      if(downloadOnly){h.el('secondaryDownloadOnly').checked=true;h.el('secondaryDownloadOnly').listeners.get('change')();}
       h.el('secondaryApply').listeners.get('click')();
     }
   }
@@ -679,5 +680,64 @@ test('new secondary export checkboxes exist in HTML and optional export does not
   const next=h.el('secondaryFiles').listeners.get('change')();
   assert.equal(h.el('secondaryAutoExport').checked,false);assert.equal(h.el('secondaryExportOptions').hidden,true);
   h.el('secondaryCancel').listeners.get('click')();await next;
+});
+
+test('Secondary rec WAV download only works without a key and preserves source metadata and current text',async()=>{
+  const h=harness({key:''});h.el('transcript').value='Keep existing transcript';h.el('speakers').checked=false;
+  let opened=0;h.el('secondaryFiles').click=()=>{opened++;};h.el('secondaryRec').listeners.get('click')();assert.equal(opened,1);
+  h.el('secondaryFiles').files=secondarySources();
+  await selectSecondary(h,{downloadOnly:true,exportFolders:['translations']});
+  assert.equal(h.downloads.length,1);assert.equal(h.transcriptions.length,0);assert.equal(h.uploads.length,0);assert.equal(h.authCalls.length,0);
+  assert.equal(h.el('transcript').value,'Keep existing transcript');assert.equal(h.el('speakers').checked,false);
+  assert.equal(h.el('secondaryRec').disabled,false);assert.equal(h.el('transcribe').disabled,true);
+  assert.equal(h.el('secondaryAutoExport').checked,false);assert.equal(h.el('secondaryAutoExport').disabled,true);
+  const output=h.downloads[0];assert.match(output.name,/^secondary rec - 2026-10-25_15-09-00_to_17-19-00_\(0m2s\)\.wav$/);
+  assert.equal(h.el('fileName').textContent,output.name);assert.equal(output.blob.type,'audio/wav');
+  const {readSecondary}=await import('../js/secondary-sections.mjs');const parsed=await readSecondary(output.blob);
+  assert.deepEqual(parsed.secondary.sources.map(source=>source.time),['15:09','17:19']);assert.equal(parsed.secondary.ranges.length,2);
+  const pcm=new Int16Array(await parsed.file.slice(44).arrayBuffer());assert.equal(pcm.length,32000);assert.ok(pcm.every(value=>value===1200));
+  assert.match(h.el('secondaryStatus').textContent,/Merged WAV download requested/);
+});
+
+test('secondary WAV-only work blocks duplicate processing while recording commands remain responsive',async()=>{
+  const gate=deferred();let merges=0;
+  const h=harness({secondaryMerge:async()=>{merges++;return gate.promise;}});
+  h.el('secondaryFiles').files=secondarySources();const pending=selectSecondary(h,{downloadOnly:true});await tick();
+  assert.equal(h.el('secondaryRec').disabled,true);assert.equal(h.el('upload').disabled,true);assert.equal(h.el('transcribe').disabled,true);
+  await h.el('secondaryFiles').listeners.get('change')();h.el('transcribe').listeners.get('click')();
+  assert.equal(merges,1);assert.equal(h.transcriptions.length,0);
+  await h.devices.execute('start');assert.equal(h.recorder.state,'recording');
+  const merged=await realMerge(secondarySources(),()=>{},()=>({prepare:async file=>({file,timing:null}),close(){}}));
+  gate.resolve(merged);await pending;
+  assert.equal(h.downloads.length,1);assert.equal(h.el('secondaryRec').disabled,false);assert.equal(h.el('transcribe').disabled,false);
+  assert.equal(h.recorder.state,'recording');assert.equal(h.authCalls.length,0);
+});
+
+test('silent batches and merge/download failures never transcribe or upload and restore WAV-only controls',async()=>{
+  for(const options of [{secondaryMerge:async()=>({empty:true})},{secondaryMerge:async()=>{throw new Error('Invalid source WAV');}},{downloadError:true}]){
+    const h=harness({key:'',...options});h.el('transcript').value='Keep old text';h.el('secondaryFiles').files=secondarySources();
+    await selectSecondary(h,{downloadOnly:true});
+    assert.equal(h.transcriptions.length,0);assert.equal(h.uploads.length,0);assert.equal(h.authCalls.length,0);
+    assert.equal(h.el('transcript').value,'Keep old text');assert.equal(h.el('secondaryRec').disabled,false);
+    assert.match(h.el('secondaryStatus').textContent,/No speech|Invalid source WAV|download blocked/);
+    if(!options.downloadError)assert.equal(h.downloads.length,0);
+    else assert.match(h.el('fileName').textContent,/^secondary rec - /);
+  }
+});
+
+test('WAV-only processing preserves the existing transcript export filename and transcription still needs a key',async()=>{
+  const h=harness({transcribe:async(source,key,speakers,status)=>{
+    const {prepareAudio}=await import('../js/audio-import.mjs');const parsed=await prepareAudio(source);
+    const filename=secondaryNames(parsed.secondary).transcript;status('Done','Existing secondary transcript',false,{filename});return 'Existing secondary transcript';
+  }});
+  h.el('secondaryFiles').files=secondarySources();await selectSecondary(h);await finishSecondary(h);
+  // Choose a different batch; exporting the untouched text must still use its original title.
+  h.el('secondaryFiles').files=[new File([audio.wavBlob([new Int16Array(16000).fill(1200)])],'R-00001_2610290800_REC.WAV',{type:'audio/wav'})];
+  await selectSecondary(h,{downloadOnly:true});
+  const pending=h.el('exportDrive').listeners.get('click')();h.el('driveImportApply').listeners.get('click')();await pending;
+  assert.equal(h.uploads[0].text,'Existing secondary transcript');assert.match(h.uploads[0].options.name,/2026-10-25_15-09-00-000_to_2026-10-25_17-19-00-000/);
+  const noKey=harness({key:''});noKey.el('secondaryFiles').files=secondarySources();await selectSecondary(noKey);
+  assert.equal(noKey.downloads.length,0);assert.equal(noKey.transcriptions.length,0);
+  assert.match(noKey.el('message').textContent,/Import a Soniox key/);
 });
 

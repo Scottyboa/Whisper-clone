@@ -8,7 +8,7 @@ import { loadGoogle, importSonioxKey } from './drive.mjs';
 import { transcribeFile } from './soniox.mjs?v=20261025-secondary3';
 import { mergeSecondaryRecordings } from './secondary-recordings.mjs?v=20261025-secondary3';
 import { sortSecondaryFiles, secondaryNames } from './secondary-sections.mjs?v=20261025-secondary3';
-import { createSecondaryPrompt } from './secondary-prompt.mjs?v=20261028-secondary-export1';
+import { createSecondaryPrompt } from './secondary-prompt.mjs?v=20261029-secondary-download1';
 import { prepareManualAudio, cancelManualVAD } from './manual-vad.mjs?v=20261025-secondary3';
 import { vadDownloadFile } from './vad-download.mjs?v=20261025-secondary3';
 import { cancelFlacTasks } from './flac-tasks.mjs?v=20261017-flac2';
@@ -52,7 +52,7 @@ function bootstrap() {
     title:$('driveImportTitle'),importOptions:$('driveImportOutputs'),help:$('driveImportHelp'),
     folders:[{name:'Transcripts',input:$('driveFolderOriginal')},{name:'translations',input:$('driveFolderTranslations')},{name:'temp',input:$('driveFolderTemp')}]});
   const secondaryPrompt = createSecondaryPrompt({dialog:$('secondaryDialog'),summary:$('secondarySummary'),
-    transcribe:$('secondaryTranscribeOnly'),download:$('secondaryWithDownload'),apply:$('secondaryApply'),
+    transcribe:$('secondaryTranscribeOnly'),download:$('secondaryWithDownload'),downloadOnly:$('secondaryDownloadOnly'),apply:$('secondaryApply'),
     autoExport:$('secondaryAutoExport'),exportOptions:$('secondaryExportOptions'),exportError:$('secondaryExportError'),
     folders:[{name:'Transcripts',input:$('secondaryExportOriginal'),defaultChecked:true},
       {name:'translations',input:$('secondaryExportTranslations')}, {name:'temp',input:$('secondaryExportTemp'),defaultChecked:true}],
@@ -352,23 +352,48 @@ function bootstrap() {
   });
   $('secondaryRec').addEventListener('click', () => {
     if (transcribing || vadProcessing) return;
-    if (!apiKey) { message('Import a Soniox key before using Secondary rec.', true); return; }
     $('secondaryFiles').value = ''; $('secondaryFiles').click();
   });
   $('secondaryFiles').addEventListener('change', async () => {
     const selected = Array.from($('secondaryFiles').files || []);
     if (!selected.length || transcribing || vadProcessing) return;
-    if (!apiKey) { message('Import a Soniox key before using Secondary rec.', true); return; }
     try {
       const sorted = sortSecondaryFiles(selected), first = sorted[0].source, last = sorted.at(-1).source;
       const options = await secondaryPrompt(`Merge ${selected.length} secondary WAV file${selected.length === 1 ? '' : 's'} from ${first.date} ${first.time} to ${last.date} ${last.time}.`);
-      if (!options || pageClosing) return;
-      if (!apiKey) { message('Import a Soniox key before using Secondary rec.', true); return; }
-      $('speakers').checked = true; $('secondaryStatus').textContent = ''; $('secondaryStatus').classList.remove('error');
+      if (!options || pageClosing || transcribing || vadProcessing) return;
+      if (options.transcribe !== false && !apiKey) { message('Import a Soniox key to transcribe, or choose VAD Silero + WAV download only.', true); return; }
+      $('secondaryStatus').textContent = ''; $('secondaryStatus').classList.remove('error');
+      if (options.transcribe === false) {
+        await downloadSecondaryOnly(sorted.map(item => item.file)); return;
+      }
+      $('speakers').checked = true;
       const exportOptions = options.exportFolders ? {folders:[...options.exportFolders],account:mail.account || devices.account || drive.account} : null;
       queueTranscription(null, apiKey, true, null, {files:sorted.map(item => item.file),download:options.download,export:exportOptions}).catch(() => {});
     } catch (error) { message(error.message || 'Secondary files could not be selected.', true); }
   });
+  async function downloadSecondaryOnly(files) {
+    vadProcessing = true; updateKey();
+    const status = $('secondaryStatus');
+    try {
+      const merged = await mergeSecondaryRecordings(files, text => message(text));
+      if (pageClosing) return;
+      if (merged.empty) {
+        status.textContent = 'No speech detected in the selected secondary recordings. No WAV downloaded.';
+        message(status.textContent); return;
+      }
+      // Keep the merged WAV (including its source map) for a later manual job.
+      // Existing transcript text and its export filename remain untouched.
+      file = merged.file; $('fileName').textContent = file.name;
+      download(file, file.name);
+      status.textContent = `Merged WAV download requested: ${file.name}`;
+      message('Secondary recordings processed · WAV download requested.');
+    } catch (error) {
+      if (!pageClosing) {
+        status.classList.add('error'); status.textContent = `Secondary VAD processing failed. ${error.message || ''}`;
+        message(status.textContent, true);
+      }
+    } finally { vadProcessing = false; updateKey(); }
+  }
   function queueTranscription(source, key, speakers, automatic = null, secondary = null) {
     transcriptionPending++; transcribing = true; updateKey();
     const job = transcriptionQueue.then(async () => {

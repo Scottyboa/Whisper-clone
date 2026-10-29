@@ -13,7 +13,7 @@ const canSpeak=spawnSync('ffmpeg',['-hide_banner','-filters'],{encoding:'utf8'})
 const root=fileURLToPath(new URL('../',import.meta.url));
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
-test('Chrome Secondary rec runs real Silero once per batch, supports both output modes with real Silero and one sectioned speaker job per batch',
+test('Chrome Secondary rec supports three output modes, sectioned transcription and local WAV-only processing with real Silero',
   {skip:!executable||!canSpeak,timeout:60000},async()=>{
   const directory=await mkdtemp(join(tmpdir(),'whisper-secondary-')),downloads=join(directory,'downloads');await mkdir(downloads);
   const make=args=>{const result=spawnSync('ffmpeg',['-v','error','-y',...args]);assert.equal(result.status,0,result.stderr.toString());};
@@ -128,6 +128,27 @@ test('Chrome Secondary rec runs real Silero once per batch, supports both output
       return {sources:result.secondary.sources.map(s=>s.time),ranges:result.secondary.ranges.length,bytes:result.file.size};
     })()`);
     assert.deepEqual(reimport.sources,['15:09','15:11','20:19']);assert.equal(reimport.ranges,2);assert.ok(reimport.bytes>44);
+    // With no Soniox key, download-only must still run real VAD and retain the
+    // existing text while making no new provider or Drive request.
+    await evaluate(`window.confirm=()=>true;document.getElementById('clear').click();
+      window.previousSecondaryText=document.getElementById('transcript').value;
+      document.getElementById('speakers').checked=false;
+      document.getElementById('secondaryFiles').dispatchEvent(new Event('change'));
+      document.getElementById('secondaryDownloadOnly').click()`);
+    assert.deepEqual(await evaluate(`({action:document.getElementById('secondaryApply').textContent,exportDisabled:document.getElementById('secondaryAutoExport').disabled,only:document.getElementById('secondaryDownloadOnly').checked})`),
+      {action:'Merge and download',exportDisabled:true,only:true});
+    await evaluate("document.getElementById('secondaryApply').click()");
+    for(let i=0;i<600&&!await evaluate("window.testDownloads.length===2&&!document.getElementById('secondaryRec').disabled");i++)await delay(40);
+    const local=await evaluate(`(async()=>{
+      const {readSecondary}=await import('./js/secondary-sections.mjs?v=20261025-secondary3');
+      const parsed=await readSecondary(window.testDownloads[1]);
+      return {downloads:window.testDownloads.length,jobs:window.testJobs.length,drive:window.testDriveUploads.length,
+        auth:window.testDriveAuth.length,textUnchanged:document.getElementById('transcript').value===window.previousSecondaryText,
+        speakers:document.getElementById('speakers').checked,sources:parsed.secondary.sources.map(s=>s.time),ranges:parsed.secondary.ranges.length};
+    })()`);
+    assert.equal(local.downloads,2);assert.equal(local.jobs,3);assert.equal(local.drive,1);assert.equal(local.auth,1);
+    assert.equal(local.textUnchanged,true);assert.equal(local.speakers,false);
+    assert.deepEqual(local.sources,['15:09','15:11','20:19']);assert.equal(local.ranges,2);
   }finally{
     await cdp('Browser.close').catch(()=>{});browser.kill();await new Promise(resolve=>server.close(resolve));
     await rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100});

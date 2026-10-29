@@ -1,6 +1,6 @@
 # Secondary recordings
 
-Use Secondary rec after importing a Soniox key. Select up to 1,000 WAVs named
+Use Secondary rec to select up to 1,000 WAVs named
 like `R-00058_2610251719_SVOS.WAV` or `R-00059_2610252019_REC.WAV`, then
 choose an output mode and confirm. Both endings can be mixed in the
 same selection, and filename matching is case-insensitive.
@@ -13,21 +13,29 @@ processing. Files sort by filename date and time, then recorder sequence number
 for tied minutes. File modification timestamps are never used. Filename years
 are interpreted as 2000–2099.
 
-The options prompt offers two mutually exclusive checkboxes:
+The options prompt offers three mutually exclusive processing checkboxes:
 
 - VAD Silero + transcribe: merge and transcribe without a WAV download.
 - VAD Silero + WAV download + transcribe: the same processing plus a merged WAV
   download. This option is checked each time the prompt opens.
+- VAD Silero + WAV download only: merge the locally VAD-processed audio and
+  download one WAV, without transcription or Drive export. No Soniox key is
+  needed. Existing transcript text, its export name and speaker-label choice
+  are preserved. The merged WAV stays selected for later manual processing,
+  with its filename dates and source metadata intact. An entirely silent batch
+  downloads nothing. Failures restore the controls without a partial download.
 
-Selecting one clears the other, and the audio is processed/transcribed once.
-With neither selected, the action button becomes Exit. Cancel, the red close
-button and Escape also dismiss the prompt without processing. Both modes keep
+Selecting one clears the other two. Transcription modes require a Soniox key;
+the download-only action is **Merge and download**. With no mode selected, the
+action button becomes Exit. Cancel, the red close button and Escape also dismiss
+the prompt without processing. The two transcription modes keep
 speaker labels, filename-based dates, original-file sections, metadata and the
 same transcript title/export name. The merged audio stays selected in memory
 for a manual retry in either mode.
 
-A third checkbox, **Automatically export after transcription**, is off each time
-the prompt opens. It is available with either transcription mode. When enabled,
+The separate checkbox, **Automatically export after transcription**, is off each
+time the prompt opens. It is available with either transcription mode and is
+cleared/disabled in WAV-download-only mode. When enabled,
 choose one or more OneDrive destinations: **Original (Transcripts)**,
 **translations** and **temp**. Original and temp start checked; these choices
 are independent of EX.Drive. At least one destination is required to continue.
@@ -54,7 +62,7 @@ The parenthesized duration is the merged retained audio duration, rounded with
 the app's existing duration formatter. Both dates appear when crossing midnight.
 Silence between clips is not reinserted. Original files are not modified.
 
-The app submits that merged speech to Soniox once, with speaker diarization on
+In either transcription mode, the app submits the merged speech to Soniox once, with speaker diarization on
 and no redundant VAD pass. Transcript tokens are assigned to their original
 source sections by their sample offsets in the merged audio. Speaker paragraphs
 restart at every source boundary, even if the speaker label is unchanged.

@@ -7,7 +7,7 @@ function element() {
     showModal(){assert.equal(this.open,false);this.open=true;},close(){this.open=false;this.fire('close');},focus(){}};
 }
 function setup() {
-  const nodes=Object.fromEntries(['dialog','summary','transcribe','download','autoExport','exportOptions','exportError','apply','cancel','close'].map(name=>[name,element()]));
+  const nodes=Object.fromEntries(['dialog','summary','transcribe','download','downloadOnly','autoExport','exportOptions','exportError','apply','cancel','close'].map(name=>[name,element()]));
   nodes.folders=['Transcripts','translations','temp'].map(name=>({name,input:element(),defaultChecked:name!=='translations'}));
   return {...nodes,prompt:createSecondaryPrompt(nodes)};
 }
@@ -85,5 +85,32 @@ test('export alone cannot start processing and Cancel never returns export desti
   assert.equal(h.exportOptions.hidden,true);assert.equal(h.apply.textContent,'Exit');
   h.apply.fire('click');assert.equal(await pending,null);
   const next=h.prompt('Next');h.autoExport.checked=true;h.autoExport.fire('change');h.cancel.fire('click');assert.equal(await next,null);
+});
+
+test('WAV download only excludes transcription and clears automatic export, including invalid folder choices',async()=>{
+  const h=setup(),pending=h.prompt('Files');h.autoExport.checked=true;h.autoExport.fire('change');
+  h.folders.forEach(folder=>{folder.input.checked=false;folder.input.fire('change');});assert.equal(h.apply.disabled,true);
+  h.downloadOnly.checked=true;h.downloadOnly.fire('change');
+  assert.equal(h.download.checked,false);assert.equal(h.transcribe.checked,false);
+  assert.equal(h.autoExport.checked,false);assert.equal(h.autoExport.disabled,true);
+  assert.equal(h.exportOptions.hidden,true);assert.ok(h.folders.every(folder=>folder.input.disabled));
+  assert.equal(h.apply.disabled,false);assert.equal(h.exportError.textContent,'');assert.equal(h.apply.textContent,'Merge and download');
+  h.apply.fire('click');assert.deepEqual(await pending,{download:true,transcribe:false});
+  const next=h.prompt('Next');assert.equal(h.downloadOnly.checked,false);assert.equal(h.download.checked,true);
+  assert.equal(h.autoExport.disabled,false);h.cancel.fire('click');await next;
+});
+
+test('all three processing modes exclude each other and download-only cancellation starts nothing',async()=>{
+  for(const mode of ['transcribe','download','downloadOnly']){
+    const h=setup(),pending=h.prompt('Files');
+    for(const name of ['downloadOnly',mode]){h[name].checked=true;h[name].fire('change');}
+    for(const name of ['transcribe','download','downloadOnly'])assert.equal(h[name].checked,name===mode);
+    if(mode==='downloadOnly')assert.equal(h.autoExport.disabled,true);
+    else assert.equal(h.autoExport.disabled,false);
+    h[mode].checked=false;h[mode].fire('change');assert.equal(h.apply.textContent,'Exit');
+    h.apply.fire('click');assert.equal(await pending,null);
+  }
+  const h=setup(),pending=h.prompt('Files');h.downloadOnly.checked=true;h.downloadOnly.fire('change');
+  h.cancel.fire('click');assert.equal(await pending,null);
 });
 
