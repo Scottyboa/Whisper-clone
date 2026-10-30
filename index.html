@@ -6,12 +6,12 @@
   <meta name="referrer" content="no-referrer">
   <title>Whisper-clone</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="style.css?v=20261025-secondary1">
+  <link rel="stylesheet" href="style.css?v=20261030-enhance1">
   <script defer src="vendor/ort/ort.min.js"></script>
   <script defer src="vendor/vad/bundle.min.js"></script>
   <script defer src="vendor/msal/msal-browser.min.js"></script>
   <script defer src="vendor/jszip/jszip.min.js"></script>
-  <script type="module" src="js/app.mjs?v=20261029-secondary-download1"></script>
+  <script type="module" src="js/app.mjs?v=20261030-enhance1"></script>
 </head>
 <body>
   <div class="privacy-controls">
@@ -108,6 +108,7 @@
         <div class="transcript-heading">
           <h2 id="model">Transcript</h2>
           <label id="speakerControl" class="switch" hidden><input id="speakers" type="checkbox" checked><span>Speaker labels</span></label>
+          <label class="switch" title="Apply a gentle 70 Hz rumble filter and level adjustment with up to 6 dB boost after Silero VAD, before downloads and transcription. Uncheck to keep VAD without these enhancements."><input id="audioEnhancement" type="checkbox" checked><span>Audio enhancement</span></label>
         </div>
         <div class="file-row">
           <button id="upload" type="button">Upload File</button>
@@ -193,6 +194,7 @@
         <p><strong>Close</strong> only closes this window. <strong>Disconnect</strong> stops this tab’s Devices connection. Recording commands leave the connection active, including after Stop or Abort.</p>
       </section>
       <section aria-labelledby="guideTranscription">
+        <p><strong>Audio enhancement</strong> beside Speaker labels is on by default. After Silero VAD, it applies a gentle 70 Hz rumble filter and adjusts levels with up to 6 dB boost. The setting applies to recordings, uploaded files and all Secondary rec modes, before downloads and transcription. Downloaded WAVs and Soniox use the same processed audio; dates, timestamps and source sections are preserved. Uncheck it to keep VAD without the additional enhancement. The choice is captured when you request an operation, including Stop; later changes affect future jobs. This processing is optional and may not improve every recording.</p>
         <h3 id="guideTranscription">Transcribe a file</h3>
         <p>Use <strong>Upload File</strong> to select audio, choose whether you want <strong>Speaker labels</strong> (on by default), then press <strong>Transcribe</strong>. The app runs voice activity detection locally first and sends only retained speech to Soniox. If no speech is detected, nothing is uploaded. Results appear in the transcript field. You can edit that text and save it with <strong>EX.Drive</strong>.</p>
         <p><strong>VAD processing:</strong> after Upload File, use this button to run Silero VAD on a WAV, FLAC or MP3 and download a speech-only <code>-VAD.wav</code>, without a Soniox key, transcription or Drive upload. The original file stays selected and is not overwritten. No speech means no download. The same model and thresholds are used as for manual transcription.</p>

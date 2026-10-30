@@ -3,6 +3,7 @@ import { clockLabel } from './wav-timing.mjs?v=20261015-clock1';
 import { prepareAudio } from './audio-import.mjs?v=20261025-secondary3';
 import { prepareManualAudio } from './manual-vad.mjs?v=20261025-secondary3';
 import { CONFIG } from './config.mjs';
+import { enhanceAudioFile } from './audio-enhancement.mjs?v=20261030-enhance1';
 
 export function renderTranscript(result, speakers, timing = null) {
   const tokens = Array.isArray(result.tokens) ? result.tokens : [];
@@ -26,7 +27,7 @@ export function renderTranscript(result, speakers, timing = null) {
 }
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-export async function transcribeFile(file, apiKey, speakers, onStatus = () => {}, { manualVAD = false } = {}) {
+export async function transcribeFile(file, apiKey, speakers, onStatus = () => {}, { manualVAD = false, enhancement = false, signal } = {}) {
   let fileId, transcriptionId;
   const request = async (path, options = {}) => {
     const response = await fetch(`${CONFIG.sonioxBase}/${path}`, {
@@ -50,9 +51,10 @@ export async function transcribeFile(file, apiKey, speakers, onStatus = () => {}
   let cleanupOK = true;
   try {
     onStatus('Preparing audio…');
-    const prepared = manualVAD ? await prepareManualAudio(file, onStatus) :
+    let prepared = manualVAD ? await prepareManualAudio(file, onStatus) :
       await prepareAudio(file, value => onStatus(`Preparing audio… ${Math.round(value * 100)}%`));
     if (prepared.empty) throw new Error(manualVAD ? 'No speech detected.' : 'This recording contains no retained speech.');
+    if (enhancement) prepared = {...prepared,file:await enhanceAudioFile(prepared.file, onStatus, {signal})};
     onStatus('Uploading…');
     const form = new FormData(); form.append('file', prepared.file, prepared.file.name || file.name);
     const upload = await (await request('files', { method: 'POST', body: form })).json();
@@ -85,3 +87,4 @@ export async function transcribeFile(file, apiKey, speakers, onStatus = () => {}
     apiKey = '';
   }
 }
+

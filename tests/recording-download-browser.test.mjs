@@ -25,7 +25,7 @@ test('Chrome downloads playable VAD WAV with original clocks and restarts indepe
     '/js/recorder.mjs': `import {Recorder as Base} from './test-real-recorder.mjs';export class Recorder extends Base {
       constructor(options){super({...options,now:()=>window.testNow,createVAD:async callbacks=>({async drainAndPause(){callbacks.onSpeechEnd(new Float32Array(16000).fill(.25),[[0,16000,window.testNow-2000]])},destroy(){}})});window.testRecorder=this;}}`,
     '/js/graph.mjs': `export class MailControl {constructor(options){Object.assign(this,options);window.testCommand=options.onCommand;this.active=false}async client(){return {}}unlink(){}}`,
-    '/js/device-control.mjs': `export const RECENT_MS=10000;export class DeviceControl {constructor(options){Object.assign(this,options);this.active=false;this.rows=[];this.pending=new Map()}async connect(){}disconnect(){}}`,
+    '/js/device-control.mjs': `export const RECENT_MS=30000,PRESENCE_TTL=120000;export class DeviceControl {constructor(options){Object.assign(this,options);this.active=false;this.rows=[];this.pending=new Map()}async connect(){}disconnect(){}}`,
     '/js/transcript-drive.mjs': `export class TranscriptDrive {async upload(text,options){window.testUploads.push({text,name:options.name,folders:options.folders});return options.name}}`,
   };
   const server = createServer(async (request, response) => {
@@ -40,14 +40,15 @@ test('Chrome downloads playable VAD WAV with original clocks and restarts indepe
       else if (pathname === '/') {
         let html = await readFile(join(root, 'index.html'), 'utf8');
         const setup = `<script>
-          window.testNow=Date.parse('2026-10-17T12:00:00Z');window.testUploads=[];window.testPayloads=[];
+          window.testNow=Date.parse('2026-10-17T12:00:00Z');window.testUploads=[];window.testPayloads=[];window.testAudioFiles=[];window.testDownloads=[];
+          const nativeURL=URL.createObjectURL.bind(URL);URL.createObjectURL=blob=>{window.testDownloads.push(blob);return nativeURL(blob)};
           sessionStorage.setItem('whisper-clone.soniox-key','fixture-only');
           const nativeFetch=window.fetch.bind(window);
           window.fetch=async(url,options={})=>{
             if(!String(url).includes('soniox.com'))return nativeFetch(url,options);
             let result={};
             if(String(url).endsWith('/files')&&options.method==='POST'){
-              const file=options.body.get('file');window.testPayloads.push({name:file.name,type:file.type,size:file.size});result={id:'fixture-file'};
+              const file=options.body.get('file');window.testAudioFiles.push(file);window.testPayloads.push({name:file.name,type:file.type,size:file.size});result={id:'fixture-file'};
             }else if(String(url).endsWith('/transcriptions')&&options.method==='POST')result={id:'fixture-job'};
             else if(String(url).endsWith('/transcript'))result={tokens:[{text:'日本語 Test',speaker:1,start_ms:0}]};
             else if(options.method!=='DELETE')result={status:'completed'};
@@ -79,6 +80,7 @@ test('Chrome downloads playable VAD WAV with original clocks and restarts indepe
     };
     for (let i = 0; i < 100 && !await evaluate("typeof window.testCommand==='function'"); i++) await delay(50);
     assert.equal(await evaluate("typeof window.testCommand==='function'"), true);
+    assert.equal(await evaluate("document.getElementById('audioEnhancement').checked"),true);
     // Real recorder finalization and download; provider and microphone are fixtures.
     await evaluate("window.testCommand('start')");
     await evaluate("window.testNow+=10000;window.testCommand('stop-and-transcribe')");
@@ -94,7 +96,11 @@ test('Chrome downloads playable VAD WAV with original clocks and restarts indepe
       const context=new AudioContext({sampleRate:16000});try{const decoded=await context.decodeAudioData(blob);
       const pcm=decoded.getChannelData(0);return {duration:decoded.duration,channels:decoded.numberOfChannels,leading:pcm[0],speech:pcm[8000],trailing:pcm[15900]};}finally{await context.close();}})()`);
     assert.equal(playback.duration, 1); assert.equal(playback.channels, 1);
-    assert.ok(playback.leading > .2); assert.ok(playback.speech > .2); assert.ok(playback.trailing > .2);
+    assert.ok(playback.leading > .2); assert.ok(Math.abs(playback.speech)<.001); assert.ok(Math.abs(playback.trailing)<.001);
+    assert.equal(await evaluate(`(async()=>{const {prepareAudio}=await import('./js/audio-import.mjs');
+      const prepared=await prepareAudio(new File([window.testDownloads[0]],'download.wav'));
+      const a=new Uint8Array(await prepared.file.arrayBuffer()),b=new Uint8Array(await window.testAudioFiles[0].arrayBuffer());
+      return a.length===b.length&&a.every((value,index)=>value===b[index]);})()`),true);
     await evaluate(`(async()=>{const blob=await(await fetch('/saved.wav')).blob();const transfer=new DataTransfer();
       transfer.items.add(new File([blob],'saved.wav',{type:'audio/wav'}));const input=document.getElementById('file');
       input.files=transfer.files;input.dispatchEvent(new Event('change'));document.getElementById('speakers').checked=true;
@@ -123,6 +129,13 @@ test('Chrome downloads playable VAD WAV with original clocks and restarts indepe
     for(let i=0;i<100&&!(await readdir(downloads)).some(name=>name.endsWith('-VAD.wav'));i++)await delay(50);
     assert.ok((await readdir(downloads)).some(name=>name.endsWith('-VAD.wav')));
     assert.deepEqual(await evaluate('({providers:window.testPayloads.length,uploads:window.testUploads.length,text:document.getElementById("transcript").value})'),previous);
+    // Opting out restores the prior unfiltered capture for the next Stop.
+    await evaluate("document.getElementById('audioEnhancement').checked=false;window.testCommand('stop')");
+    for(let i=0;i<100&&!await evaluate('window.testDownloads.length>=3');i++)await delay(50);
+    const raw=await evaluate(`(async()=>{const {prepareAudio}=await import('./js/audio-import.mjs');
+      const parsed=await prepareAudio(new File([window.testDownloads.at(-1)],'raw.wav'));
+      const pcm=new Int16Array(await parsed.file.slice(44).arrayBuffer());return {first:pcm[0],last:pcm.at(-1)};})()`);
+    assert.ok(raw.first>8000&&raw.last>8000);
     await evaluate("window.testCommand('abort')");
     assert.equal(await evaluate('window.testRecorder.state'), 'idle');
   } finally {
@@ -131,3 +144,4 @@ test('Chrome downloads playable VAD WAV with original clocks and restarts indepe
     await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 });
+

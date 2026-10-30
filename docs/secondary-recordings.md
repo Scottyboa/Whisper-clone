@@ -13,6 +13,12 @@ processing. Files sort by filename date and time, then recorder sequence number
 for tied minutes. File modification timestamps are never used. Filename years
 are interpreted as 2000–2099.
 
+The main **Audio enhancement** checkbox is on by default and applies after VAD
+in all three modes. It filters low rumble at 70 Hz and adjusts levels with up to
+about 6 dB boost. Downloads and transcription share the same completed processed
+audio, with source metadata intact. Uncheck it for the previous VAD-only audio.
+The setting is captured when confirming the Secondary rec options.
+
 The options prompt offers three mutually exclusive processing checkboxes:
 
 - VAD Silero + transcribe: merge and transcribe without a WAV download.

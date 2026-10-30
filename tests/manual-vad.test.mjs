@@ -6,6 +6,7 @@ import { decodeFileChunks } from '../js/file-audio.mjs';
 import { vadFrames, trimDecodedAudio, retainedTiming } from '../js/file-vad.mjs';
 import { prepareManualAudio, cancelManualVAD } from '../js/manual-vad.mjs';
 import { transcribeFile } from '../js/soniox.mjs';
+import { enhanceAudioFile } from '../js/audio-enhancement.mjs';
 import { wavBlob, VAD_RULES } from '../js/audio.mjs';
 
 const sandbox = { self: { ort: {} }, console };
@@ -133,10 +134,15 @@ test('Soniox receives only the new VAD output; silence and processing failures m
     const file = wav(pcm, { version: 1, sampleRate: 16000, timeZone: 'UTC', segments: [[0, pcm.length, epoch]] });
     assert.equal(await transcribeFile(file, 'test', true, () => {}, { manualVAD: true }), '(10:00:00) Speaker 1: Hello');
     assert.equal(uploads.length, 1); assert.equal(uploads[0].name, 'input.wav'); assert.ok(uploads[0].size < file.size / 2);
+    assert.equal(await transcribeFile(file,'test',true,()=>{},{manualVAD:true,enhancement:true}),'(10:00:00) Speaker 1: Hello');
+    assert.equal(uploads.length,2);
+    const expected=await enhanceAudioFile(uploads[0]);
+    assert.deepEqual(await uploads[1].arrayBuffer(),await expected.arrayBuffer());
+    assert.notDeepEqual(await uploads[1].arrayBuffer(),await uploads[0].arrayBuffer());
     await assert.rejects(transcribeFile(wav(new Int16Array(frame * 10)), 'test', true, () => {}, { manualVAD: true }), /No speech detected/);
     fail = true;
     await assert.rejects(transcribeFile(file, 'test', true, () => {}, { manualVAD: true }), /Model failed/);
-    assert.equal(uploads.length, 1);
+    assert.equal(uploads.length, 2);
   } finally { globalThis.fetch = originalFetch; globalThis.Worker = originalWorker; }
 });
 
@@ -149,3 +155,4 @@ test('leaving the page cancels a pending manual VAD worker', async () => {
     await ready; cancelManualVAD(); await assert.rejects(pending, /cancelled/); assert.equal(terminate, 1);
   } finally { globalThis.Worker = original; }
 });
+

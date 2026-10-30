@@ -5,7 +5,8 @@ import { DevicesPanel, createAbortPrompt } from './devices-panel.mjs?v=20261027-
 import { clock, duration, dateStamp, timeStamp, recordingName, recordingTranscriptName, download } from './audio.mjs?v=20261015-clock1';
 import { MailControl } from './graph.mjs?v=20261023-upload1';
 import { loadGoogle, importSonioxKey } from './drive.mjs';
-import { transcribeFile } from './soniox.mjs?v=20261025-secondary3';
+import { transcribeFile } from './soniox.mjs?v=20261030-enhance1';
+import { enhanceAudioFile } from './audio-enhancement.mjs?v=20261030-enhance1';
 import { mergeSecondaryRecordings } from './secondary-recordings.mjs?v=20261025-secondary3';
 import { sortSecondaryFiles, secondaryNames } from './secondary-sections.mjs?v=20261025-secondary3';
 import { createSecondaryPrompt } from './secondary-prompt.mjs?v=20261029-secondary-download1';
@@ -29,9 +30,12 @@ function bootstrap() {
   let wakeLock = null, wakeGeneration = 0, importBusy = false;
   let driveBusy = false, drivePending = 0, transcriptionPending = 0;
   let driveQueue = Promise.resolve(), transcriptionQueue = Promise.resolve(), audioDownloadQueue = Promise.resolve();
+  let audioPreparationQueue = Promise.resolve();
   let audioDownloadsPending = 0, pageClosing = false, vadProcessing = false;
   let commandGeneration = 0;
+  const enhancementAbort = new AbortController();
   $('speakers').checked = true;
+  $('audioEnhancement').checked = true;
   const message = (text = '', error = false) => { $('message').textContent = text; $('message').classList.toggle('error', error); };
   try {
     apiKey = sessionStorage.getItem(KEY) || '';
@@ -98,6 +102,7 @@ function bootstrap() {
     $('model').textContent = apiKey ? 'Speech-to-Text Model Soniox' : 'Transcript';
     $('speakerControl').hidden = !apiKey;
     $('speakers').disabled = transcribing;
+    $('audioEnhancement').disabled = transcribing || vadProcessing;
     $('vadProcess').disabled = !file || transcribing || vadProcessing;
     $('transcribe').disabled = !apiKey || !file || transcribing || vadProcessing;
     $('import').disabled = transcribing || importBusy;
@@ -173,15 +178,16 @@ function bootstrap() {
     }
   }
 
-  function queueAudioDownload(result) {
+  function queueAudioDownload(result, audio) {
     audioDownloadsPending++;
-    const job = audioDownloadQueue.then(() => {
+    const job = audioDownloadQueue.then(async () => {
+      const blob = await audio;
       if (pageClosing) return;
       const status = $('audioDownloadStatus');
       status.classList.remove('error');
-      // The recorder already finalized the Silero-retained PCM and clock map.
-      // Download it directly, without restoring silence or encoding a FLAC.
-      download(result.blob, recordingName(result.entry));
+      // Use the shared completed WAV, including enhancement when selected.
+      // Do not restore removed silence or encode a FLAC.
+      download(blob, recordingName(result.entry));
       status.textContent = `VAD WAV download requested · ${duration(result.entry.elapsedMs)} elapsed · ${duration(result.entry.audioMs)} retained audio`;
     }).catch(error => {
       $('audioDownloadStatus').classList.add('error');
@@ -196,7 +202,7 @@ function bootstrap() {
     try {
       const automatic = action === 'stop-and-transcribe';
       // Snapshot configuration at command receipt, before Stop drains the VAD.
-      const key = apiKey, account = mail.account || devices.account;
+      const key = apiKey, account = mail.account || devices.account, enhancement = $('audioEnhancement').checked;
       const result = await recorder.command(automatic ? 'stop' : action);
       if (!result) {
         if (action === 'abort') { $('timer').textContent = clock(0); message('Recording discarded.'); }
@@ -212,7 +218,13 @@ function bootstrap() {
       } else { message('No speech detected.'); }
       // Download independently of recording commands and transcription.
       // A recording with no retained speech has no WAV to download.
-      if (blob) queueAudioDownload(result);
+      const audio = blob ? audioPreparationQueue.then(() => enhanceAudioFile(
+        new File([blob],recordingName(entry),{type:'audio/wav'}), () => {},
+        {enabled:enhancement,signal:enhancementAbort.signal})) : null;
+      if (audio) audioPreparationQueue = audio.catch(() => {});
+      // Shared by download and STT; later queued consumers may attach after a failure.
+      audio?.catch(() => {});
+      if (blob) queueAudioDownload(result, audio);
       else {
         $('audioDownloadStatus').classList.remove('error');
         $('audioDownloadStatus').textContent = 'No speech detected. No audio file downloaded.';
@@ -230,9 +242,8 @@ function bootstrap() {
         if (blob) {
           if (!key) keyError = new Error('Audio download queued, but automatic transcription needs a Soniox API key. Use Import Key.');
           else {
-            const source = new File([blob], recordingName(entry), { type: 'audio/wav' });
             // Snapshot the completed recording, not the new active capture.
-            queueTranscription(source, key, true, { entry, account }).catch(() => {});
+            queueTranscription(audio, key, true, { entry, account }, null, false).catch(() => {});
           }
         }
         const restartError = await restart;
@@ -336,12 +347,14 @@ function bootstrap() {
   });
   $('vadProcess').addEventListener('click', async () => {
     if (!file || transcribing || vadProcessing) return;
-    const source = file, status = $('vadStatus');
+    const source = file, status = $('vadStatus'), enhancement = $('audioEnhancement').checked;
     vadProcessing = true; updateKey(); status.classList.remove('error');
     try {
-      const result = await prepareManualAudio(source, text => { status.textContent = text; });
+      let result = await prepareManualAudio(source, text => { status.textContent = text; });
       if (pageClosing) return;
       if (result.empty) { status.textContent = 'No speech detected. No file downloaded.'; return; }
+      result = {...result,file:await enhanceAudioFile(result.file, text => {status.textContent=text;},
+        {enabled:enhancement,signal:enhancementAbort.signal})};
       const output = await vadDownloadFile(result);
       if (pageClosing) return;
       download(output, output.name);
@@ -363,19 +376,26 @@ function bootstrap() {
       if (!options || pageClosing || transcribing || vadProcessing) return;
       if (options.transcribe !== false && !apiKey) { message('Import a Soniox key to transcribe, or choose VAD Silero + WAV download only.', true); return; }
       $('secondaryStatus').textContent = ''; $('secondaryStatus').classList.remove('error');
+      const enhancement = $('audioEnhancement').checked;
       if (options.transcribe === false) {
-        await downloadSecondaryOnly(sorted.map(item => item.file)); return;
+        await downloadSecondaryOnly(sorted.map(item => item.file), enhancement); return;
       }
       $('speakers').checked = true;
       const exportOptions = options.exportFolders ? {folders:[...options.exportFolders],account:mail.account || devices.account || drive.account} : null;
-      queueTranscription(null, apiKey, true, null, {files:sorted.map(item => item.file),download:options.download,export:exportOptions}).catch(() => {});
+      queueTranscription(null, apiKey, true, null, {files:sorted.map(item => item.file),download:options.download,export:exportOptions}, enhancement).catch(() => {});
     } catch (error) { message(error.message || 'Secondary files could not be selected.', true); }
   });
-  async function downloadSecondaryOnly(files) {
+  async function prepareSecondary(files, enhancement, onStatus) {
+    const merged = await mergeSecondaryRecordings(files, onStatus);
+    if (!merged.empty) merged.file = await enhanceAudioFile(merged.file, onStatus,
+      {enabled:enhancement,signal:enhancementAbort.signal});
+    return merged;
+  }
+  async function downloadSecondaryOnly(files, enhancement) {
     vadProcessing = true; updateKey();
     const status = $('secondaryStatus');
     try {
-      const merged = await mergeSecondaryRecordings(files, text => message(text));
+      const merged = await prepareSecondary(files, enhancement, text => message(text));
       if (pageClosing) return;
       if (merged.empty) {
         status.textContent = 'No speech detected in the selected secondary recordings. No WAV downloaded.';
@@ -394,11 +414,13 @@ function bootstrap() {
       }
     } finally { vadProcessing = false; updateKey(); }
   }
-  function queueTranscription(source, key, speakers, automatic = null, secondary = null) {
+  function queueTranscription(source, key, speakers, automatic = null, secondary = null, enhancement = $('audioEnhancement').checked) {
     transcriptionPending++; transcribing = true; updateKey();
     const job = transcriptionQueue.then(async () => {
       let cleanupFailed = false, outputFilename = null;
       try {
+        if (automatic) source = await source;
+        if (pageClosing) return;
         if (secondary) {
           if (secondary.export) {
             // Obtain consent now, before a potentially long VAD/STT job. The
@@ -412,7 +434,7 @@ function bootstrap() {
             }
             if (pageClosing) return;
           }
-          const merged = await mergeSecondaryRecordings(secondary.files, status => message(status));
+          const merged = await prepareSecondary(secondary.files, enhancement, status => message(status));
           if (pageClosing) return;
           if (merged.empty) throw new Error('No speech detected in the selected secondary recordings. No file downloaded or sent to Soniox.');
           source = merged.file;
@@ -437,7 +459,7 @@ function bootstrap() {
           }
           if (error) cleanupFailed = true;
           message(status, error);
-        }, { manualVAD: !automatic && !secondary });
+        }, { manualVAD: !automatic && !secondary, enhancement:!automatic && !secondary && enhancement, signal:enhancementAbort.signal });
         if (pageClosing) return;
         $('transcript').value = text; transcriptFilename = outputFilename; updateDrive();
         const autoExport = automatic ? {name:recordingTranscriptName(automatic.entry),account:automatic.account,folders:['Transcripts','temp']} :
@@ -477,6 +499,7 @@ function bootstrap() {
   });
   window.addEventListener('pagehide', () => {
     pageClosing = true; secondaryPrompt.cancel();
+    enhancementAbort.abort();
     devices.disconnect(); panel.dispose(); mail.unlink(); recorder.dispose(); cancelFlacTasks(); cancelManualVAD(); wakeGeneration++;
     wakeLock?.release().catch(() => {}); file = null;
   });

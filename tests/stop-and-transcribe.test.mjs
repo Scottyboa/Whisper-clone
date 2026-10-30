@@ -12,13 +12,14 @@ import { createSecondaryPrompt } from '../js/secondary-prompt.mjs';
 import { vadDownloadFile } from '../js/vad-download.mjs';
 import { mergeSecondaryRecordings as realMerge } from '../js/secondary-recordings.mjs';
 import { sortSecondaryFiles, secondaryNames } from '../js/secondary-sections.mjs';
+import { enhanceAudioFile as realEnhance } from '../js/audio-enhancement.mjs';
 
 const account = { homeAccountId: 'recording-account' };
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve, reject; const promise = new Promise((a,b) => { resolve=a; reject=b; }); return {promise,resolve,reject}; };
 const app = readFileSync(new URL('../js/app.mjs', import.meta.url), 'utf8').replace(/^import .*;\n/gm, '');
-function harness({ key = 'soniox-key', speech = true, timed = false, transcribe, upload, onCapture, onDrain, downloadError = false, abortConfirmed = true, readDrive, prepareVAD, secondaryMerge, authorize } = {}) {
-  const elements = new Map(), downloads = [], transcriptions = [], uploads = [], commands = [], captures = [], importCalls = [], authCalls=[];
+function harness({ key = 'soniox-key', speech = true, timed = false, transcribe, upload, onCapture, onDrain, downloadError = false, abortConfirmed = true, readDrive, prepareVAD, secondaryMerge, authorize, enhancement = false, enhance } = {}) {
+  const elements = new Map(), downloads = [], transcriptions = [], uploads = [], commands = [], captures = [], importCalls = [], authCalls=[], enhancements=[];
   const makeElement = () => ({
     value: '', checked: false, disabled: false, textContent: '', children: [], listeners: new Map(),
     classList: { toggle() {}, add() {}, remove() {} },
@@ -55,6 +56,8 @@ function harness({ key = 'soniox-key', speech = true, timed = false, transcribe,
     async connect() {} disconnect(){this.active=false;}
   }
   const context = vm.createContext({
+    AbortController,
+    enhanceAudioFile:async(...args)=>{enhancements.push(args);return (enhance || realEnhance)(...args);},
     ...audio, download: (blob,name) => { downloads.push({blob,name}); if(downloadError)throw new Error('download blocked'); }, Recorder, MailControl: Mail, TranscriptDrive: Drive,
     prepareManualAudio: prepareVAD || (async source => ({file:new File([audio.wavBlob([new Int16Array(16000)])],source.name.replace(/\.[^.]*$/,'')+'.wav',{type:'audio/wav'}),timing:null})),
     vadDownloadFile, sortSecondaryFiles, secondaryNames, mergeSecondaryRecordings: secondaryMerge || ((files,status)=>realMerge(files,status,()=>({prepare:async file=>({file,timing:null}),close(){}}))), cancelFlacTasks(){}, cancelManualVAD(){},
@@ -65,7 +68,10 @@ function harness({ key = 'soniox-key', speech = true, timed = false, transcribe,
     window: {opener:null,addEventListener() {}}, location: {}, navigator: {}, setInterval() {}, confirm:()=>true,
   });
   vm.runInContext(app,context);
-  return { el, downloads, transcriptions, uploads, commands, captures, recorder, mail, devices, importCalls, authCalls, advance: ms => {now+=ms;} };
+  const defaultEnhancement=el('audioEnhancement').checked;
+  // Existing byte-for-byte regression cases exercise the explicit opt-out.
+  el('audioEnhancement').checked=enhancement;
+  return { el, downloads, transcriptions, uploads, commands, captures, recorder, mail, devices, importCalls, authCalls, enhancements, defaultEnhancement, advance: ms => {now+=ms;} };
 }
 const commandMail = (overrides={}) => ({id:'command-id', subject:'', body:{contentType:'text',content:'stop and transcribe'},
   from:{emailAddress:{address:'self@example.com'}}, sender:{emailAddress:{address:'self@example.com'}},
@@ -739,5 +745,88 @@ test('WAV-only processing preserves the existing transcript export filename and 
   const noKey=harness({key:''});noKey.el('secondaryFiles').files=secondarySources();await selectSecondary(noKey);
   assert.equal(noKey.downloads.length,0);assert.equal(noKey.transcriptions.length,0);
   assert.match(noKey.el('message').textContent,/Import a Soniox key/);
+});
+
+test('enhancement defaults on and stays available without a Soniox key beside speaker labels',()=>{
+  const h=harness({key:''});assert.equal(h.defaultEnhancement,true);
+  const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(html,/<input id="audioEnhancement"[^>]*checked/);
+  assert.match(html,/id="speakers"[^]*?<\/label>\s*<label[^]*?id="audioEnhancement"/);
+  assert.equal(h.el('audioEnhancement').disabled,false);
+});
+
+test('live download and automatic STT share exactly one enhanced result and retain original clock metadata',async()=>{
+  const h=harness({enhancement:true,timed:true});await h.devices.execute('start');h.advance(10000);
+  await h.devices.execute('stop-and-transcribe');
+  for(let i=0;i<200&&(!h.downloads.length||!h.transcriptions.length);i++)await tick();
+  assert.equal(h.recorder.state,'recording');assert.equal(h.downloads.length,1);assert.equal(h.transcriptions.length,1);
+  assert.equal(h.enhancements.filter(args=>args[2].enabled).length,1);
+  assert.equal(h.transcriptions[0][4].enhancement,false);
+  const {prepareAudio}=await import('../js/audio-import.mjs');
+  const downloaded=await prepareAudio(h.downloads[0].blob),submitted=await prepareAudio(h.transcriptions[0][0]);
+  assert.ok(downloaded.timing);assert.deepEqual(downloaded.timing,submitted.timing);
+  assert.deepEqual(await downloaded.file.arrayBuffer(),await submitted.file.arrayBuffer());
+  const samples=new Int16Array(await downloaded.file.slice(44).arrayBuffer());
+  assert.ok(Math.abs(samples.at(-1))<2,'DC test capture is filtered');
+  assert.equal(samples.length,16000);assert.equal(h.uploads.length,1);
+});
+
+test('slow live enhancement cannot delay automatic restart or Abort, and uses the setting captured at Stop',async()=>{
+  const gate=deferred(),h=harness({enhancement:true,enhance:async(file,status,options)=>{
+    await gate.promise;return realEnhance(file,status,options);
+  }});
+  await h.devices.execute('start');h.advance(10000);await h.devices.execute('stop-and-transcribe');
+  assert.equal(h.recorder.state,'recording');assert.equal(h.downloads.length,0);assert.equal(h.transcriptions.length,0);
+  h.el('audioEnhancement').checked=false;await h.devices.execute('abort');assert.equal(h.recorder.state,'idle');
+  gate.resolve();for(let i=0;i<200&&(!h.downloads.length||!h.transcriptions.length);i++)await tick();
+  assert.equal(h.enhancements[0][2].enabled,true);assert.equal(h.downloads.length,1);assert.equal(h.transcriptions.length,1);
+  assert.equal(h.recorder.state,'idle');
+});
+
+test('Secondary rec enhancements are shared by all three modes without another STT enhancement pass',async()=>{
+  for(const mode of [{download:true},{download:false},{downloadOnly:true}]){
+    const h=harness({enhancement:true});h.el('secondaryFiles').files=secondarySources();
+    await selectSecondary(h,mode);await finishSecondary(h);
+    assert.equal(h.enhancements.filter(args=>args[2].enabled).length,1);
+    const enhanced=h.transcriptions[0]?.[0] || h.downloads[0].blob;
+    const {prepareAudio}=await import('../js/audio-import.mjs');const parsed=await prepareAudio(enhanced);
+    assert.deepEqual(parsed.secondary.sources.map(s=>s.time),['15:09','17:19']);assert.equal(parsed.secondary.ranges.length,2);
+    assert.ok(new Int16Array(await parsed.file.slice(44).arrayBuffer()).some(value=>value!==1200));
+    if(h.transcriptions.length)assert.equal(h.transcriptions[0][4].enhancement,false);
+    if(h.transcriptions.length&&h.downloads.length)assert.deepEqual(await h.downloads[0].blob.arrayBuffer(),await h.transcriptions[0][0].arrayBuffer());
+  }
+});
+
+test('manual transcription snapshots the checkbox and VAD-only downloads enhance after VAD',async()=>{
+  const h=harness({enhancement:true});h.el('file').files=[new File(['input'],'manual.wav')];h.el('file').listeners.get('change')();
+  h.el('transcribe').listeners.get('click')();h.el('audioEnhancement').checked=false;await tick();
+  assert.equal(h.transcriptions[0][4].manualVAD,true);assert.equal(h.transcriptions[0][4].enhancement,true);
+  const input=new File([audio.wavBlob([new Int16Array(16000).fill(4096)])],'manual.wav',{type:'audio/wav'});
+  const d=harness({key:'',enhancement:true,prepareVAD:async()=>({file:input,timing:null})});d.el('file').files=[input];d.el('file').listeners.get('change')();
+  await d.el('vadProcess').listeners.get('click')();assert.equal(d.transcriptions.length,0);assert.equal(d.downloads.length,1);
+  assert.equal(d.enhancements[0][0],input);assert.equal(d.enhancements[0][2].enabled,true);
+  assert.notDeepEqual(await d.downloads[0].blob.arrayBuffer(),await input.arrayBuffer());
+  assert.equal(d.el('audioEnhancement').disabled,false);
+});
+
+test('enhancement failures cannot silently upload raw audio or block later jobs',async()=>{
+  let fail=true;const h=harness({enhancement:true,enhance:async(...args)=>{if(fail)throw new Error('Enhancement failed');return realEnhance(...args);}});
+  await h.devices.execute('start');h.advance(10000);await h.devices.execute('stop-and-transcribe');await tick();
+  assert.equal(h.downloads.length,0);assert.equal(h.transcriptions.length,0);assert.equal(h.recorder.state,'recording');
+  assert.match(h.el('audioDownloadStatus').textContent,/Enhancement failed/);
+  fail=false;h.el('secondaryFiles').files=secondarySources();await selectSecondary(h);await finishSecondary(h);
+  assert.equal(h.downloads.length,1);assert.equal(h.transcriptions.length,1);
+});
+
+test('consecutive Stops serialize live enhancement while captures keep restarting',async()=>{
+  const gate=deferred();let count=0;
+  const h=harness({enhancement:true,enhance:async(...args)=>{if(++count===1)await gate.promise;return realEnhance(...args);}});
+  await h.devices.execute('start');h.advance(10000);await h.devices.execute('stop-and-transcribe');
+  h.advance(10000);await h.devices.execute('stop-and-transcribe');
+  assert.equal(h.recorder.state,'recording');assert.equal(h.captures.length,3);assert.equal(count,1);
+  gate.resolve();for(let i=0;i<300&&h.downloads.length<2;i++)await tick();
+  for(let i=0;i<300&&h.transcriptions.length<2;i++)await tick();
+  assert.equal(count,2);assert.equal(h.downloads.length,2);assert.equal(h.transcriptions.length,2);
+  assert.equal(h.recorder.state,'recording');
 });
 
